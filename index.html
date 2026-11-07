@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#071426"><link rel="manifest" href="manifest.webmanifest">
+<title>COMEBACK OS</title><link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="top"><div><small>JEE ADVANCED 2028</small><h1>COMEBACK <span>OS</span></h1></div><div class="level">LVL <b id="level">1</b></div></header>
+<main>
+<section id="home" class="screen active">
+<div class="hero panel"><small>SYSTEM STATUS</small><h2>Your comeback starts here.</h2><p>Consistency over intensity. Mastery over completion.</p><div class="xp"><span id="xpText">0 XP</span><span id="nextText">100 XP to next level</span></div><div class="bar"><i id="xpBar"></i></div></div>
+<div class="stats"><div class="panel"><small>CHAPTERS MASTERED</small><strong id="masteredCount">0 / 30</strong></div><div class="panel"><small>ACTIVE GRADE</small><strong>Grade 4</strong></div></div>
+<div class="panel"><h3>Today's focus</h3><p>Log your study, track concepts, and build evidence of mastery.</p><button onclick="show('quests')">Open Quest Board</button></div>
+</section>
+<section id="quests" class="screen"><h2>Quest Board</h2><div class="panel"><h3>Daily quests</h3><div id="dailyList"></div><div class="inline"><input id="questInput" placeholder="Add a quest"><button onclick="addQuest()">Add</button></div></div><div class="panel"><h3>Study log</h3><input id="studyMinutes" type="number" min="1" placeholder="Minutes studied"><input id="studyNote" placeholder="What did you study?"><button onclick="logStudy()">Save study session</button></div></section>
+<section id="database" class="screen"><h2>Academic Database</h2><p class="muted">A chapter is mastered only after both Main and Advanced PYQ verification.</p><div id="chapters"></div></section>
+<section id="planner" class="screen"><h2>Planner</h2><div class="panel"><h3>Tasks & schoolwork</h3><input id="taskInput" placeholder="Homework, practical, or task"><button onclick="addTask()">Add task</button><div id="tasks"></div></div></section>
+<section id="profile" class="screen"><h2>Player Profile</h2><div class="panel"><h3>Academic attributes</h3><p>Conceptual Understanding · Problem Solving · Accuracy · Advanced Application · Retention</p><p class="muted">Not assessed yet — scores require evidence.</p><h3>Backup</h3><button onclick="exportData()">Export backup</button><label class="file">Import backup<input type="file" accept="application/json" onchange="importData(event)"></label></div></section>
+</main>
+<nav><button data-screen="home" class="selected" onclick="show('home')">Home</button><button data-screen="quests" onclick="show('quests')">Quests</button><button data-screen="database" onclick="show('database')">Database</button><button data-screen="planner" onclick="show('planner')">Planner</button><button data-screen="profile" onclick="show('profile')">Profile</button></nav>
+<script src="app.js"></script>
+</body></html>
