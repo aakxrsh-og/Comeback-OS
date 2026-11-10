@@ -4,11 +4,11 @@
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#071426"><meta name="description" content="COMEBACK OS — Hybrid Intelligence Academic System">
 <link rel="manifest" href="manifest.webmanifest"><link rel="icon" href="icon.svg">
-<title>COMEBACK OS 2.0</title><link rel="stylesheet" href="styles.css">
+<title>COMEBACK OS 2.1</title><link rel="stylesheet" href="styles.css">
 </head>
 <body>
 <div class="scanline"></div>
-<header class="topbar"><div><div class="eyebrow">PERSONAL ACADEMIC OPERATING SYSTEM</div><h1>COMEBACK <span>OS</span><small> // 2.0</small></h1></div><button id="connection" class="status"><i></i> LOCAL INTELLIGENCE</button></header>
+<header class="topbar"><div><div class="eyebrow">PERSONAL ACADEMIC OPERATING SYSTEM</div><h1>COMEBACK <span>OS</span><small> // 2.1</small></h1></div><button id="connection" class="status"><i></i> LOCAL INTELLIGENCE</button></header>
 <main>
 <section id="home" class="screen active">
   <div class="hero panel"><div class="hero-copy"><div class="eyebrow">SYSTEM ONLINE · HYBRID MODE</div><h2 id="greeting">Your next chapter starts now.</h2><p id="transmission">Consistency is not a mood. It is a system you can return to.</p></div><div class="core"><div class="core-ring"><div class="core-inner"><b id="level">01</b><span>LEVEL</span></div></div></div></div>
@@ -16,12 +16,13 @@
   <div class="section-head"><div><div class="eyebrow">COMMAND DECK</div><h3>Today's priorities</h3></div><button class="ghost" data-go="quests">VIEW ALL ↗</button></div>
   <div id="todayQuests" class="stack"></div>
   <div class="section-head"><div><div class="eyebrow">INTELLIGENCE REPORT</div><h3>System recommendation</h3></div></div>
+  <article class="panel recommendation"><div class="tag">21-DAY EVALUATION</div><p id="evaluationSummary">Evaluation begins once evidence is recorded.</p><button id="runEvaluation" class="ghost" type="button">RUN EVALUATION</button></article>
   <article class="panel recommendation"><div class="tag">LOCAL ANALYST</div><p id="recommendation">Log your current topics and study evidence. The system will identify the next useful action.</p></article>
 </section>
 <section id="quests" class="screen">
  <div class="page-head"><div class="eyebrow">MISSION CONTROL</div><h2>Quest Board</h2><p>Plan the work. Record the evidence. Adjust without guilt.</p></div>
  <form id="questForm" class="panel form"><label>Quest title<input id="questTitle" required maxlength="100" placeholder="e.g. Complete Gravitation lecture 1"></label><label>Category<select id="questCategory"><option>Main Quest</option><option>Side Quest</option><option>Revision</option><option>Assessment</option></select></label><label>Estimated minutes<input id="questMinutes" type="number" min="5" max="240" value="45"></label><button class="primary">+ CREATE QUEST</button></form>
- <div class="section-head"><h3>Active missions</h3><span class="muted" id="questCount"></span></div><div id="questList" class="stack"></div>
+ <div class="button-row"><button id="generateQuests" class="primary" type="button">GENERATE TODAY'S QUESTS</button><span id="questEngineState" class="muted">Daily engine ready</span></div><div class="section-head"><h3>Active missions</h3><span class="muted" id="questCount"></span></div><div id="questList" class="stack"></div>
 </section>
 <section id="database" class="screen">
  <div class="page-head"><div class="eyebrow">KNOWLEDGE ARCHIVE</div><h2>Academic Database</h2><p>Coverage is not mastery. Evidence decides readiness.</p></div>
@@ -34,6 +35,17 @@
   <label>Chapter<select id="sessionChapter"></select></label><label>What did you do?<select id="sessionType"><option>Lecture</option><option>Concept study</option><option>DPP practice</option><option>Module practice</option><option>JEE Main PYQ</option><option>JEE Advanced PYQ</option><option>Revision</option></select></label>
   <label>Minutes<input id="sessionMinutes" type="number" min="5" max="360" value="45"></label><label>Evidence / notes<textarea id="sessionNotes" rows="3" placeholder="Topics covered, questions attempted, result, doubts…"></textarea></label><button class="primary">SAVE STUDY EVIDENCE</button>
  </form>
+ <div class="section-head"><h3>PYQ verification</h3><span class="muted">Evidence-based mastery</span></div>
+ <form id="pyqForm" class="panel form">
+  <label>Chapter<select id="pyqChapter"></select></label>
+  <label>Exam<select id="pyqExam"><option>JEE Main</option><option>JEE Advanced</option></select></label>
+  <label>Questions attempted<input id="pyqTotal" type="number" min="1" max="100" value="10" required></label>
+  <label>Correct answers<input id="pyqCorrect" type="number" min="0" max="100" value="8" required></label>
+  <label>Question level<select id="pyqDifficulty"><option>Mixed</option><option>Standard</option><option>Advanced</option></select></label>
+  <label>Source / paper reference<input id="pyqSource" maxlength="120" placeholder="e.g. JEE Advanced 2023 Paper 1"></label>
+  <label class="checkline"><input id="pyqIndependent" type="checkbox" checked> Solved independently, without hints or solution</label>
+  <button class="primary">SAVE VERIFIED PYQ SESSION</button>
+ </form>
  <div class="section-head"><h3>Recent activity</h3></div><div id="activityList" class="stack"></div>
 </section>
 <section id="profile" class="screen">
@@ -41,7 +53,7 @@
  <div class="panel profile-card"><div class="eyebrow">CURRENT RANK</div><h2 id="rank">Grade 4</h2><p id="rankNote">Initial rank · evaluation rules pending evidence calibration</p><div class="progress"><i id="xpBar"></i></div><p class="muted" id="xpProgress">0 / 100 XP to next level</p></div>
  <div class="panel form"><h3>Hybrid AI connection</h3><p class="muted">The app currently runs its local intelligence engine. A secure backend is required for genuine model-based assessment. Never paste an API key here or into the public repository.</p><label>Backend endpoint (optional)<input id="backendUrl" type="url" placeholder="https://your-secure-backend.example"></label><button id="saveBackend" class="primary">SAVE BACKEND ADDRESS</button><div id="aiState" class="tag">AI MODE: LOCAL RULE ENGINE</div></div>
  <div class="panel form"><h3>Data controls</h3><p class="muted">Your records stay on this device unless you export them or connect a backend.</p><div class="button-row"><button id="exportData" class="ghost">EXPORT BACKUP</button><label class="file-button">IMPORT BACKUP<input id="importData" type="file" accept="application/json"></label></div><button id="resetData" class="danger">RESET LOCAL DATA</button></div>
- <div class="panel"><div class="eyebrow">CURRENT BUILD</div><p>COMEBACK OS 2.0 · Local-first hybrid architecture · AI backend not connected</p></div>
+ <div class="panel form"><h3>Five-engine status</h3><div id="engineStatus" class="stack"></div><p class="muted">Live model connection is intentionally disabled in this build. The engines run locally; the secure provider adapter can be connected only to a service permitted for the intended student audience.</p></div><div class="panel"><div class="eyebrow">CURRENT BUILD</div><p>COMEBACK OS 2.1 · Five-engine local intelligence · AI provider adapter prepared</p></div>
 </section>
 </main>
 <nav class="bottom-nav"><button class="nav active" data-go="home"><b>⌂</b><span>Home</span></button><button class="nav" data-go="quests"><b>✧</b><span>Quests</span></button><button class="nav" data-go="database"><b>▤</b><span>Database</span></button><button class="nav" data-go="planner"><b>◷</b><span>Planner</span></button><button class="nav" data-go="profile"><b>◇</b><span>Profile</span></button></nav>

@@ -1,32 +1,27 @@
-# COMEBACK OS 2.0
+# COMEBACK OS 2.1 — Hybrid Intelligence
 
-A phone-first, local-first PWA prototype with a hybrid-intelligence architecture.
+Phone-first, local-first PWA. This release adds five cooperating deterministic engines while preserving the existing `comeback-os` localStorage key and import/export workflow.
 
 ## Deploy/update on GitHub Pages
-1. Back up v1 data from the Profile screen before updating.
+1. In the currently installed app, open Profile → Export Backup first.
 2. Extract this ZIP.
-3. Upload/replace the files in the root of the existing `comeback-os` repository.
-4. Commit the changes. Keep the repository and GitHub Pages settings unchanged.
-5. Open the existing Pages site in Brave. Refresh; if an older shell remains, close the installed app and reopen it after the service worker updates.
+3. Upload/replace the contents of `COMEBACK_OS_2_0` in the root of the existing `comeback-os` repository.
+4. Commit the changes; keep the repository and GitHub Pages settings unchanged.
+5. Reopen the existing Pages URL in Brave. If the old shell remains, close and reopen the installed PWA after the service worker refreshes.
+6. Import the JSON backup only if the browser's local data is missing. The app also migrates the existing `comeback-os` data automatically.
 
-## Data preservation
-The app retains the v1 localStorage key `comeback-os` and migrates common v1 fields. Nevertheless, export a JSON backup first. Browser storage can be cleared by Android/Brave, so keep a backup somewhere safe.
+## Five engines
+1. **Daily Quest Engine:** generates a small daily mission set using chapter priorities, backlog and retention needs.
+2. **Mastery Engine:** uses recorded independent PYQ sessions, accuracy, topic coverage and separate Main/Advanced evidence. It does not accept a manual mastery toggle.
+3. **21-Day Evaluation:** reviews the rolling 21-day record. It defers when evidence is insufficient rather than treating missing data as failure.
+4. **Retention Engine:** flags mastered chapters whose last revision is overdue.
+5. **Progress Intelligence:** produces explainable recommendations from local records.
 
-## Current capabilities
-- Mobile-first holographic-style interface and animated core
-- Local quests, study evidence, chapter records, XP and level progression
-- Local rule-based recommendations
-- JSON export/import
-- Offline shell through service worker
-- Backend endpoint setting placeholder
+## Important limitations
+- The included chapter list is a **30-chapter starter catalogue**, not the complete official JEE Main + Advanced syllabus. Do not treat it as complete coverage.
+- PYQ evidence is user-entered and not externally authenticated. The mastery gate is a useful progress rule, not an independent verification of question authenticity or answer correctness.
+- The evaluation score is a transparent prototype metric, not a predicted JEE rank or an official academic grade.
+- No live AI provider is connected. The backend URL field only saves an address; no student data is transmitted. Review provider terms for the actual student end user before enabling any external AI. Keep API credentials on a secure backend, never in `app.js`, GitHub Pages, or screenshots.
 
-## Important: what is and is not "fully AI"
-This build is **AI-ready, not connected to a live AI model**. It includes a local rules-based intelligence layer. Real model reasoning requires a separately hosted secure backend and an API credential. GitHub Pages is static hosting and cannot securely hold that secret. Do not paste API keys into `app.js`, GitHub, or this app's public files. Do not create paid API billing without parent/guardian approval.
-
-The backend starter folder contains an architecture contract and example request/response schema. It is not a deployed backend and does not call a model yet.
-
-## Mastery safeguards
-The current prototype stores user-entered PYQ verification flags. It does not independently validate the question, solution, answer key, or difficulty. A production mastery engine must require reviewed evidence and apply deterministic app-side gates. Do not treat a self-entered flag as proof of mastery.
-
-## Data model
-See `docs/DATA_MODEL.md` and `docs/AI_CONTRACT.md`.
+## Data safety
+Export a JSON backup regularly. Browser storage can be cleared by Android/Brave. See `docs/DATA_MODEL.md`, `docs/AI_CONTRACT.md`, and `backend-starter/README.md`.
