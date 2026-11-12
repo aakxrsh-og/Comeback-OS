@@ -102,10 +102,20 @@ export default {
     let data = {};
     try { data = JSON.parse(raw); } catch {}
     if (!upstream.ok) {
-      // Do not return provider payloads that may contain diagnostic details.
-      return json({ error: "The AI provider rejected the request. Check backend model/key configuration." }, 502, cors);
-    }
+  const providerError = data?.error || {};
 
+  console.error("Gemini API rejected request", {
+    httpStatus: upstream.status,
+    status: providerError.status || "unknown",
+    message: typeof providerError.message === "string"
+      ? providerError.message.slice(0, 300)
+      : "No provider message"
+  });
+
+  return json({
+    error: "The AI provider rejected the request. Check backend model/key configuration."
+  }, 502, cors);
+    }
     const reply = data?.candidates?.[0]?.content?.parts
       ?.map(part => part.text || "").join("").trim();
     if (!reply) return json({ error: "The AI provider returned an empty response." }, 502, cors);
