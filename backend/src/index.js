@@ -103,20 +103,20 @@ export default {
     try { data = JSON.parse(raw); } catch {}
     if (!upstream.ok) {
   const providerError = data?.error || {};
+  const safeMessage = typeof providerError.message === "string"
+    ? providerError.message.slice(0, 250)
+    : "No provider message";
 
   console.error("Gemini API rejected request", {
     httpStatus: upstream.status,
     status: providerError.status || "unknown",
-    message: typeof providerError.message === "string"
-      ? providerError.message.slice(0, 300)
-      : "No provider message"
+    message: safeMessage
   });
 
   return json({
-    error: "The AI provider rejected the request. Check backend model/key configuration."
+    error: `Gemini error (${upstream.status}): ${safeMessage}`
   }, 502, cors);
-    }
-    const reply = data?.candidates?.[0]?.content?.parts
+    }    const reply = data?.candidates?.[0]?.content?.parts
       ?.map(part => part.text || "").join("").trim();
     if (!reply) return json({ error: "The AI provider returned an empty response." }, 502, cors);
     return json({ reply, model: data.modelVersion || model }, 200, cors);
