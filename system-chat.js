@@ -121,7 +121,8 @@
       unresolvedMistakes:mistakes.filter(m=>!m.corrected).slice(-5).reverse().map(m=>({chapterId:m.chapterId||null,topic:clip(m.topic,80),type:clip(m.type,30),correction:clip(m.correction,120)})),
       evaluations:(d.evaluations||[]).slice(-2).map(x=>({at:x.at||null,enough:!!x.enough,score:x.score??null,studyDays:x.studyDays??null,accuracy:x.accuracy??null})),
       conversationHistory:(d.conversations||[]).slice(-8).map(m=>({role:m.role==='assistant'?'assistant':'user',text:clip(m.text,260)})),
-      subjectAnalytics:subjectStats
+      subjectAnalytics:subjectStats,
+      recommendation:window.ComebackOS?.recommendNext?.()||null
     };
     const trimOrder = ['recentQuestHistory','planner','sessions','pyqSets','assessments','unresolvedMistakes','conversationHistory','syllabus.chapters'];
     let text = JSON.stringify(payload);

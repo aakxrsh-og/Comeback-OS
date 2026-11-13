@@ -1,0 +1,54 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import vm from 'node:vm';
+import { webcrypto } from 'node:crypto';
+
+class Element {
+  constructor(id='') { this.id=id;this.value=id==='subject'||id==='exam-filter'?'All':id==='topic-status-filter'?'all':'';this.innerHTML='';this.textContent='';this.style={};this.dataset={};this.hidden=false;this.classList={add(){},remove(){},toggle(){}}; }
+  addEventListener(){} reset(){} replaceChildren(){} append(){} scrollIntoView(){}
+}
+async function loadApp() {
+  const elements=new Map(),get=id=>{if(!elements.has(id))elements.set(id,new Element(id));return elements.get(id);},data=new Map();
+  const document={getElementById:get,addEventListener(){},querySelectorAll(){return[]},querySelector(){return new Element()},createElement(){return new Element()}};
+  const context={document,localStorage:{getItem:k=>data.get(k)||null,setItem:(k,v)=>data.set(k,v)},crypto:webcrypto,console,navigator:{},URL,Blob,confirm:()=>true,setTimeout:()=>0,addEventListener(){},window:{}};
+  vm.createContext(context);
+  const [catalog,app]=await Promise.all([readFile(new URL('../../syllabus.js',import.meta.url),'utf8'),readFile(new URL('../../app.js',import.meta.url),'utf8')]);
+  vm.runInContext(catalog+'\n'+app+'\nglobalThis.__engines={get state(){return state},mastery,refresh,generate,eval21,revisionCandidates,recommendNext,focus,active,overlaps,recoverQuest};',context);
+  return context.__engines;
+}
+
+test('fresh install seeds the syllabus catalogue and daily quests are bounded and duplicate-safe',async()=>{
+  const app=await loadApp(),s=app.state;assert.ok(s.chapters.length>=45);s.settings.availableMinutes=90;s.settings.lastQuestDate='';
+  assert.equal(app.generate(),true);const count=s.quests.length;assert.ok(count>0);assert.ok(s.quests.reduce((n,q)=>n+q.minutes,0)<=90);assert.equal(app.generate(),false);assert.equal(s.quests.length,count);
+});
+
+test('topic completion alone does not award mastery; repeated sessions and exam-specific PYQ evidence do',async()=>{
+  const app=await loadApp(),s=app.state,c=s.chapters.find(x=>x.mainCoverage==='included');assert.ok(c);c.topicStatus={'topic-a':'completed','topic-b':'completed'};app.refresh();assert.equal(c.mastered,false);
+  s.sessions.push({chapterId:c.id,minutes:30,at:new Date().toISOString()},{chapterId:c.id,minutes:25,at:new Date().toISOString()});
+  if(c.mainCoverage!=='not-listed')s.attempts.push({chapterId:c.id,exam:'JEE Main',independent:true,total:10,correct:9},{chapterId:c.id,exam:'JEE Main',independent:true,total:10,correct:9});
+  if(c.advancedCoverage!=='not-listed')s.attempts.push({chapterId:c.id,exam:'JEE Advanced',difficulty:'Advanced',independent:true,total:10,correct:8},{chapterId:c.id,exam:'JEE Advanced',difficulty:'Advanced',independent:true,total:10,correct:8});
+  app.refresh();assert.equal(c.mastered,true);assert.equal(c.status,'Mastered');
+});
+
+test('21-day evaluation defers with thin evidence and uses logged evidence when sufficient',async()=>{
+  const app=await loadApp(),s=app.state;let result=app.eval21();assert.equal(result.enough,false);assert.equal(result.score,null);
+  const now=Date.now();for(let i=0;i<5;i++)s.sessions.push({at:new Date(now-i*86400000).toISOString(),minutes:30});
+  s.attempts.push({at:new Date(now).toISOString(),total:10,correct:7},{at:new Date(now-86400000).toISOString(),total:10,correct:8});
+  result=app.eval21();assert.equal(result.enough,true);assert.equal(result.accuracy,75);assert.ok(Number.isFinite(result.score));
+});
+
+test('revision queue explains real overdue, weak-PYQ, backlog and mistake signals',async()=>{
+  const app=await loadApp(),s=app.state,c=s.chapters[0];c.lastRevision=new Date(Date.now()-9*86400000).toISOString();c.topicStatus={'topic':'backlog'};
+  s.attempts.push({chapterId:c.id,total:10,correct:4},{chapterId:c.id,total:10,correct:5});s.mistakes.push({chapterId:c.id,corrected:false});
+  const row=app.revisionCandidates().find(x=>x.chapter.id===c.id);assert.ok(row);assert.ok(row.reasons.some(x=>x.includes('overdue')));assert.ok(row.reasons.some(x=>x.includes('below 70%')));assert.ok(row.reasons.some(x=>x.includes('mistake')));assert.ok(row.reasons.includes('Backlog topics'));
+});
+
+test('recommendation engine explains an evidence-based next action and uncertainty',async()=>{
+  const app=await loadApp(),s=app.state,c=s.chapters[0];s.settings.availableMinutes=45;c.status='Backlog';c.topicStatus={'topic':'backlog'};
+  const r=app.recommendNext();assert.equal(r.engine,'recommendation');assert.match(r.action,/revision/i);assert.equal(r.priority,'High');assert.ok(r.evidence.includes('Backlog topics'));assert.ok(r.benefit);assert.ok(r.uncertainty);
+});
+
+test('overdue quests recover in place and timed overlaps are rejected',async()=>{
+  const app=await loadApp(),s=app.state,today=new Date().toISOString().slice(0,10);const q={id:'q1',title:'Existing task',minutes:30,remainingMinutes:30,date:'2000-01-01',time:'09:00',done:false};s.quests.push(q);assert.equal(app.overlaps({date:today,time:'09:15',minutes:30},'q2'),false);assert.equal(app.overlaps({date:today,time:'09:15',minutes:30},'q1'),false);q.date=today;assert.equal(app.overlaps({date:today,time:'09:15',minutes:30},'q2'),true);app.recoverQuest('q1');assert.equal(q.date,today);assert.equal(q.time,'');assert.equal(s.quests.length,1);
+});
