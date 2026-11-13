@@ -1,1 +1,11 @@
-{"name":"COMEBACK OS 2.0","short_name":"COMEBACK OS","start_url":"./","display":"standalone","background_color":"#050d19","theme_color":"#071426","description":"Hybrid Intelligence Academic System","icons":[{"src":"icon.svg","sizes":"any","type":"image/svg+xml","purpose":"any maskable"}]}
+{
+  "name":"COMEBACK OS 2.5",
+  "short_name":"COMEBACK OS",
+  "start_url":"./",
+  "scope":"./",
+  "display":"standalone",
+  "background_color":"#06111f",
+  "theme_color":"#071426",
+  "description":"Local-first JEE preparation command center",
+  "icons":[{"src":"icon.svg","sizes":"any","type":"image/svg+xml","purpose":"any maskable"}]
+}

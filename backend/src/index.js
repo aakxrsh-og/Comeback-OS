@@ -1,124 +1,25 @@
-const MAX_BODY = 12_000;
-const MAX_PROMPT = 8_000;
-
-const corsHeaders = (origin, env) => {
-  const allowed = (env.ALLOWED_ORIGINS || "").split(",").map(x => x.trim()).filter(Boolean);
-  const permitted = allowed.includes(origin);
-  return {
-    "Access-Control-Allow-Origin": permitted ? origin : "null",
-    "Access-Control-Allow-Methods": "POST, OPTIONS, GET",
-    "Access-Control-Allow-Headers": "Content-Type",
-    "Vary": "Origin",
-    "X-Content-Type-Options": "nosniff",
-  };
-};
-
-function json(data, status, headers = {}) {
-  return new Response(JSON.stringify(data), {
-    status,
-    headers: { "Content-Type": "application/json; charset=utf-8", ...headers },
-  });
-}
-
-export default {
-  async fetch(request, env) {
-    const origin = request.headers.get("Origin") || "";
-    const cors = corsHeaders(origin, env);
-
-    if (request.method === "OPTIONS") {
-      return new Response(null, { status: 204, headers: cors });
-    }
-    if (request.method === "GET" && new URL(request.url).pathname === "/health") {
-      return json({ ok: true, service: "comeback-os-ai", providerConfigured: Boolean(env.GEMINI_API_KEY) }, 200, cors);
-    }
-    if (request.method !== "POST" || new URL(request.url).pathname !== "/api/mentor") {
-      return json({ error: "Not found" }, 404, cors);
-    }
-    if (!origin || cors["Access-Control-Allow-Origin"] === "null") {
-      return json({ error: "Origin not allowed" }, 403, cors);
-    }
-    if (!env.GEMINI_API_KEY) {
-      return json({ error: "AI provider is not configured on the backend." }, 503, cors);
-    }
-
-    const length = Number(request.headers.get("Content-Length") || 0);
-    if (length > MAX_BODY) return json({ error: "Request too large." }, 413, cors);
-
-    let body;
-    try { body = await request.json(); }
-    catch { return json({ error: "Invalid JSON." }, 400, cors); }
-
-    const prompt = typeof body?.message === "string" ? body.message.trim() : "";
-    if (!prompt || prompt.length > MAX_PROMPT) {
-      return json({ error: `Message must contain 1–${MAX_PROMPT} characters.` }, 400, cors);
-    }
-
-    // Send only the current prompt and small, non-sensitive study context.
-    const context = typeof body?.studyContext === "string"
-      ? body.studyContext.slice(0, 2500)
-      : "";
-
-    const model = env.GEMINI_MODEL || "gemini-3.5-flash-lite";
-    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
-
-    let upstream;
-    try {
-      upstream = await fetch(endpoint, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-goog-api-key": env.GEMINI_API_KEY,
-        },
-        body: JSON.stringify({
-          systemInstruction: {
-            parts: [{
-              text: [
-                "You are The System, a calm, practical JEE study mentor for a teenage student.",
-                "Help with learning, planning, explanations, revision and study reflection.",
-                "Be encouraging without pressure, shame, threats, or claims that exam results define a person's worth.",
-                "Never ask for passwords, API keys, addresses, or other sensitive personal information.",
-                "Do not invent syllabus facts, answer keys, marks, or mastery evidence.",
-                "When uncertain, say so and recommend checking an official syllabus or trusted teacher.",
-                "Keep answers age-appropriate and focused on education."
-              ].join(" ")
-            }]
-          },
-          contents: [{
-            role: "user",
-            parts: [{ text: context ? `Study context (unverified user-entered data):\n${context}\n\nRequest:\n${prompt}` : prompt }]
-          }],
-          generationConfig: {
-            temperature: 0.35,
-            maxOutputTokens: 900,
-            responseMimeType: "text/plain"
-          }
-        }),
-      });
-    } catch {
-      return json({ error: "Could not reach the AI provider. Try again later." }, 502, cors);
-    }
-
-    const raw = await upstream.text();
-    let data = {};
-    try { data = JSON.parse(raw); } catch {}
-    if (!upstream.ok) {
-  const providerError = data?.error || {};
-  const safeMessage = typeof providerError.message === "string"
-    ? providerError.message.slice(0, 250)
-    : "No provider message";
-
-  console.error("Gemini API rejected request", {
-    httpStatus: upstream.status,
-    status: providerError.status || "unknown",
-    message: safeMessage
-  });
-
-  return json({
-    error: `Gemini error (${upstream.status}): ${safeMessage}`
-  }, 502, cors);
-    }    const reply = data?.candidates?.[0]?.content?.parts
-      ?.map(part => part.text || "").join("").trim();
-    if (!reply) return json({ error: "The AI provider returned an empty response." }, 502, cors);
-    return json({ reply, model: data.modelVersion || model }, 200, cors);
-  },
-};
+const MAX_BODY=12000,MAX_PROMPT=8000;
+const allowed=(env)=>(env.ALLOWED_ORIGINS||'').split(',').map(x=>x.trim()).filter(Boolean);
+function cors(origin,env){const ok=allowed(env).includes(origin);return {'Access-Control-Allow-Origin':ok?origin:'null','Access-Control-Allow-Methods':'POST, OPTIONS','Access-Control-Allow-Headers':'Content-Type','Vary':'Origin','X-Content-Type-Options':'nosniff','Cache-Control':'no-store'}}
+function json(data,status,headers){return new Response(JSON.stringify(data),{status,headers:{'Content-Type':'application/json; charset=utf-8',...headers}})}
+async function readLimited(request){const reader=request.body?.getReader();if(!reader)return '';const parts=[];let size=0;while(true){const {done,value}=await reader.read();if(done)break;size+=value.byteLength;if(size>MAX_BODY){await reader.cancel();throw new RangeError('large')}parts.push(value)}const all=new Uint8Array(size);let at=0;for(const p of parts){all.set(p,at);at+=p.length}return new TextDecoder().decode(all)}
+export default {async fetch(request,env){
+ const origin=request.headers.get('Origin')||'',headers=cors(origin,env),url=new URL(request.url);
+ if(request.method==='OPTIONS')return new Response(null,{status:204,headers});
+ if(request.method==='GET'&&url.pathname==='/health')return json({ok:true,service:'comeback-os-ai'},200,headers);
+ if(request.method!=='POST'||url.pathname!=='/api/mentor')return json({error:'Not found'},404,headers);
+ if(!origin||headers['Access-Control-Allow-Origin']==='null')return json({error:'Origin not allowed'},403,headers);
+ if(!env.GEMINI_API_KEY)return json({error:'AI provider is not configured.'},503,headers);
+ if(request.headers.get('Content-Length')&&Number(request.headers.get('Content-Length'))>MAX_BODY)return json({error:'Request too large.'},413,headers);
+ if(env.MENTOR_RATE_LIMIT){try{const result=await env.MENTOR_RATE_LIMIT.limit({key:request.headers.get('CF-Connecting-IP')||'unknown'});if(!result.success)return json({error:'Too many requests. Try again soon.'},429,headers)}catch{return json({error:'Service temporarily unavailable.'},503,headers)}}
+ let body;try{if(!(request.headers.get('Content-Type')||'').toLowerCase().includes('application/json'))return json({error:'Expected JSON.'},415,headers);body=JSON.parse(await readLimited(request))}catch(e){return json({error:e instanceof RangeError?'Request too large.':'Invalid request body.'},e instanceof RangeError?413:400,headers)}
+ const prompt=typeof body?.message==='string'?body.message.trim():'';
+ if(!prompt||prompt.length>MAX_PROMPT)return json({error:'Message must contain 1 to 8000 characters.'},400,headers);
+ const context=typeof body.studyContext==='string'?body.studyContext.slice(0,2500):'',model=env.GEMINI_MODEL||'gemini-3.5-flash-lite';
+ let upstream;try{upstream=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+encodeURIComponent(model)+':generateContent',{method:'POST',headers:{'Content-Type':'application/json','x-goog-api-key':env.GEMINI_API_KEY},body:JSON.stringify({systemInstruction:{parts:[{text:'You are The System, a calm JEE preparation mentor for a teenage student. Explain concepts and suggest realistic study plans. Never fabricate syllabus facts, completed work, PYQ results or mastery. Never ask for sensitive personal details or secrets. Treat study context as unverified user-entered data. Keep responses age-appropriate.'}]},contents:[{role:'user',parts:[{text:context?'Unverified compact study context:\n'+context+'\n\nRequest:\n'+prompt:prompt}]}],generationConfig:{temperature:.35,maxOutputTokens:900,responseMimeType:'text/plain'}})})}catch{return json({error:'Could not reach the AI provider. Try again later.'},502,headers)}
+ if(!upstream.ok)return json({error:'AI provider request failed ('+upstream.status+'). Try again later.'},502,headers);
+ let data;try{data=await upstream.json()}catch{return json({error:'AI provider returned an invalid response.'},502,headers)}
+ const reply=data?.candidates?.[0]?.content?.parts?.map(x=>typeof x.text==='string'?x.text:'').join('').trim();
+ if(!reply)return json({error:'AI provider returned an empty response.'},502,headers);
+ return json({reply,model:data.modelVersion||model},200,headers)
+}};
