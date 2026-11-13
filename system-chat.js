@@ -1,5 +1,6 @@
 (() => {
   const API = 'https://comeback-os-ai1.aakxrshs.workers.dev/api/mentor';
+  const AUTH_CONFIG_API = 'https://comeback-os-ai1.aakxrshs.workers.dev/api/auth/config';
   const KEY = 'comeback-os';
   const MAX_CONTEXT = 5600;
   const ACTION_TTL_MS = 10 * 60 * 1000;
@@ -7,7 +8,42 @@
   const log = $('chat-log'), form = $('chat-form'), input = $('chat-input');
   const status = $('chat-status'), actions = $('action-proposals');
   const cancelButton = $('cancel-chat'), retryButton = $('retry-chat');
-  let busy = false, controller = null, retryMessage = '', timedOut = false;
+  let busy = false, controller = null, retryMessage = '', timedOut = false, authCredential = '', authOwner = '', authExpiresAt = 0, authClientId = '', authWaits = 0, googleInitialized = false;
+  const authStatus = $('auth-status'), googleButton = $('google-signin'), signoutButton = $('signout');
+  const authNotice=document.createElement('p');authNotice.className='muted';authNotice.textContent='Study records remain in this browser profile and are not separated by Google account. Sending a study summary is optional and off by default.';$('auth-panel').append(authNotice);
+  const identityScript=document.createElement('script');identityScript.src='https://accounts.google.com/gsi/client';identityScript.async=true;identityScript.defer=true;identityScript.onerror=()=>{authStatus.textContent='Google sign-in could not be loaded. Local study tools remain available.';};document.head.append(identityScript);
+  function clearAuth(message='Signed out. Sign in to use THE SYSTEM.') { authCredential='';authOwner='';authExpiresAt=0;googleButton.replaceChildren();signoutButton.hidden=true;authStatus.textContent=message;status.textContent='Sign in to use the live mentor service.';try{window.google?.accounts?.id?.disableAutoSelect();}catch{}if(authClientId)setTimeout(setupAuth,0); }
+  function activeAuth() { if(!authCredential||Date.now()>=authExpiresAt*1000){if(authCredential)clearAuth('Your sign-in expired. Sign in again.');return false;}return true; }
+  async function subjectHash(subject) { const bytes=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(subject));return [...new Uint8Array(bytes)].map(x=>x.toString(16).padStart(2,'0')).join(''); }
+  async function setupAuth() {
+    try {
+      if(googleInitialized&&window.google?.accounts?.id){if(!googleButton.childElementCount)window.google.accounts.id.renderButton(googleButton,{theme:'outline',size:'large',text:'signin_with',shape:'rectangular'});return;}
+      const response=await fetch(AUTH_CONFIG_API,{cache:'no-store'});if(!response.ok)throw new Error('Sign-in is not configured by the service owner.');
+      const config=await response.json();if(!config.configured||typeof config.clientId!=='string'||!/^[A-Za-z0-9._-]{10,255}\.apps\.googleusercontent\.com$/.test(config.clientId))throw new Error('Sign-in is not configured by the service owner.');authClientId=config.clientId;
+      if(!window.google?.accounts?.id){if(authWaits++<20){setTimeout(setupAuth,250);return;}throw new Error('Identity provider did not load.');}
+      window.google.accounts.id.initialize({client_id:authClientId,callback:async result=>{try{const encoded=result.credential.split('.')[1].replace(/-/g,'+').replace(/_/g,'/'),claims=JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(encoded+'='.repeat((4-encoded.length%4)%4)),c=>c.charCodeAt(0))));if(claims.aud!==authClientId||!claims.sub||!claims.exp||claims.exp*1000<=Date.now())throw new Error();authCredential=result.credential;authOwner=await subjectHash(claims.sub);authExpiresAt=claims.exp;googleButton.replaceChildren();signoutButton.hidden=false;authStatus.textContent='Signed in · session expires '+new Date(authExpiresAt*1000).toLocaleTimeString();status.textContent='Signed in. THE SYSTEM is ready.';setTimeout(()=>activeAuth(),Math.max(0,authExpiresAt*1000-Date.now()));renderStoredActions();}catch{clearAuth('Sign-in could not be validated. Try again.');}}});googleInitialized=true;
+      googleButton.replaceChildren();window.google.accounts.id.renderButton(googleButton,{theme:'outline',size:'large',text:'signin_with',shape:'rectangular'});authWaits=0;authStatus.textContent='Sign in with Google. Your session stays in memory and expires with the identity token.';
+    } catch { authStatus.textContent='Sign-in is unavailable until the Worker identity configuration is complete.'; }
+  }
+  function addDevProposalPanel() {
+    const profile=$('profile'),panel=document.createElement('details');panel.className='card';
+    const summary=document.createElement('summary'),title=document.createElement('b');title.textContent='Controlled development task proposals';summary.append(title);panel.append(summary);
+    const description=document.createElement('p');description.textContent='Send one selected source snippet and a task to the authenticated Worker. It returns a reviewable patch and suggested tests. It never runs code or writes to GitHub; your approval only downloads the patch.';panel.append(description);
+    const form=document.createElement('form');form.className='form';form.id='dev-task-form';
+    const field=(labelText,id,tag='textarea')=>{const label=document.createElement('label');label.textContent=labelText;const el=document.createElement(tag);el.id=id;if(tag==='textarea')el.rows=id==='dev-task-source'?12:3;label.append(el);form.append(label);return el;};
+    const task=field('Task description','dev-task-prompt');task.maxLength=2000;task.required=true;
+    const path=field('Repository-relative source path','dev-task-path','input');path.maxLength=160;path.required=true;path.placeholder='backend/src/index.js';
+    const source=field('Selected source snippet','dev-task-source');source.maxLength=8000;source.required=true;
+    const consentLabel=document.createElement('label');consentLabel.className='check';const consent=document.createElement('input');consent.type='checkbox';consent.id='dev-task-consent';consent.required=true;consentLabel.append(consent,document.createTextNode(' I approve sending this selected source and task to the AI provider.'));form.append(consentLabel);
+    const submit=document.createElement('button');submit.textContent='Generate reviewable proposal';form.append(submit);panel.append(form);
+    const output=document.createElement('div');output.id='dev-task-output';output.className='stack';output.setAttribute('aria-live','polite');panel.append(output);profile.append(panel);
+    form.addEventListener('submit',async event=>{event.preventDefault();output.replaceChildren();if(!activeAuth()){output.textContent='Sign in before requesting a development proposal.';return;}if(!consent.checked){output.textContent='Explicit source-sharing approval is required.';return;}submit.disabled=true;output.textContent='Generating a non-executable proposal…';try{const response=await fetch(API.replace('/api/mentor','/api/dev-tasks/propose'),{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+authCredential},body:JSON.stringify({task:task.value,files:[{path:path.value,content:source.value}]})});const data=await response.json().catch(()=>({}));if(response.status===401){clearAuth('Your identity session expired. Sign in again.');throw new Error('Sign-in expired.');}if(!response.ok)throw new Error(typeof data.error==='string'?data.error:'Proposal service unavailable.');if(data.owner!==authOwner||Date.parse(data.expiresAt)<=Date.now()||data.execution!=='never-executed')throw new Error('The proposal did not pass identity and expiry checks.');
+      output.replaceChildren();const heading=document.createElement('p');heading.textContent='PROPOSED · '+data.summary+' · expires '+new Date(data.expiresAt).toLocaleString();output.append(heading);for(const [label,items] of [['Suggested tests (not executed)',data.tests],['Risks',data.risks]]){const h=document.createElement('b');h.textContent=label;output.append(h);const list=document.createElement('ul');for(const item of items||[]){const li=document.createElement('li');li.textContent=item;list.append(li);}output.append(list);}const pre=document.createElement('pre');pre.className='card';pre.textContent=data.patch;pre.style.overflowX='auto';output.append(pre);
+      const audit=(statusValue)=>{let rows=[];try{rows=JSON.parse(localStorage.getItem('comeback-os-dev-task-audit')||'[]');if(!Array.isArray(rows))rows=[];}catch{}rows.push({id:data.id,owner:data.owner,status:statusValue,at:new Date().toISOString(),baseRef:data.baseRef});localStorage.setItem('comeback-os-dev-task-audit',JSON.stringify(rows.slice(-100)));};
+      const approve=document.createElement('button');approve.textContent='Approve and download patch';approve.onclick=()=>{if(!activeAuth()||authOwner!==data.owner||Date.parse(data.expiresAt)<=Date.now()){output.insertAdjacentText('afterbegin','Approval blocked: sign-in changed or proposal expired.');return;}audit('APPROVED_FOR_DOWNLOAD');const link=document.createElement('a');link.href=URL.createObjectURL(new Blob([data.patch],{type:'text/x-diff'}));link.download='comeback-os-'+data.id+'.patch';link.click();setTimeout(()=>URL.revokeObjectURL(link.href),1000);approve.disabled=true;output.insertAdjacentText('afterbegin','Approved patch downloaded. No repository files were changed.');};
+      const reject=document.createElement('button');reject.type='button';reject.textContent='Reject proposal';reject.onclick=()=>{audit('REJECTED');output.replaceChildren();output.textContent='Proposal rejected; no file or repository change was made.';};output.append(approve,reject);source.value='';
+    }catch(error){output.textContent='Development proposal unavailable: '+clip(error.message,220);}finally{submit.disabled=false;}});
+  }
   const clip = (v, max = 180) => String(v ?? '').replace(/[\u0000-\u001f]/g, ' ').slice(0, max);
   const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const markdown = t => esc(t).replace(/```([\s\S]*?)```/g,'<pre><code>$1</code></pre>').replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>').replace(/\*([^*]+)\*/g,'<em>$1</em>').replace(/\$([^$\n]+)\$/g,'<span class="math">$1</span>').replace(/\n/g,'<br>');
@@ -116,6 +152,7 @@
     if(typeof a.id!=='string'||a.id.length<8||a.id.length>100)return 'Action has no valid unique ID.';
     if(!Number.isFinite(Date.parse(a.expiresAt||''))||Date.parse(a.expiresAt)<=Date.now())return 'Action is expired or has an invalid expiry.';
     if(a.validationStatus!=='validated')return 'Action did not pass Worker validation.';
+    if(!activeAuth()||!authOwner||a.owner!==authOwner)return 'This proposal belongs to a different or expired sign-in session.';
     if(typeof a.reason!=='string'||!a.reason.trim()||a.reason.length>300)return 'Action is missing a concise reason.';
     if(typeof a.expectedEffect!=='string'||!a.expectedEffect.trim()||a.expectedEffect.length>300)return 'Action is missing an expected effect.';
     if(a.type==='create_quest'){
@@ -150,7 +187,7 @@
     return 'Action type is not allowed.';
   }
   function actionArgs(a) {
-    const meta=new Set(['id','reason','expectedEffect','createdAt','expiresAt','validationStatus']);
+    const meta=new Set(['id','owner','reason','expectedEffect','createdAt','expiresAt','validationStatus']);
     return Object.fromEntries(Object.entries(a).filter(([k])=>!meta.has(k)));
   }
   function event(entry,statusValue,result='') {
@@ -159,7 +196,7 @@
   function audit(d,entry,type,result='') {
     d.audit=Array.isArray(d.audit)?d.audit:[];d.audit.push({at:new Date().toISOString(),type,actionId:entry.id,actionType:entry.type,result:clip(result,240)});d.audit=d.audit.slice(-1000);
   }
-  function recordProposals(list) {
+  async function recordProposals(list) {
     const current=readDb();if(!current.ok)return;
     const d=current.data;d.actions=Array.isArray(d.actions)?d.actions:[];const known=new Set(d.actions.map(x=>x.id));let changed=false;
     for(const candidate of (Array.isArray(list)?list:[]).slice(0,3)){
@@ -168,7 +205,7 @@
       if(known.has(proposedId)){audit(d,{id:proposedId,type:clip(candidate.type,50)},'ai-action-duplicate','Duplicate action ID rejected.');changed=true;continue;}
       const a={...candidate,id:proposedId};
       const issue=validateAction(a,d);if(issue){audit(d,{id:proposedId,type:clip(a.type,50)},'ai-action-invalid',issue);known.add(proposedId);changed=true;continue;}
-      const entry={id:a.id,type:a.type,arguments:actionArgs(a),reason:clip(a.reason,300),expectedEffect:clip(a.expectedEffect,300),createdAt:a.createdAt||new Date().toISOString(),expiresAt:a.expiresAt,validationResult:{status:'passed',checkedAt:new Date().toISOString()},status:'PROPOSED',lifecycle:[]};
+      const entry={id:a.id,type:a.type,owner:a.owner,arguments:actionArgs(a),reason:clip(a.reason,300),expectedEffect:clip(a.expectedEffect,300),createdAt:a.createdAt||new Date().toISOString(),expiresAt:a.expiresAt,validationResult:{status:'passed',checkedAt:new Date().toISOString()},status:'PROPOSED',lifecycle:[]};
       event(entry,'VALIDATED','Worker schema and current application state passed validation.');event(entry,'AWAITING_APPROVAL','No application change has been made.');audit(d,entry,'ai-action-proposed','Awaiting explicit approval.');d.actions.push(entry);known.add(entry.id);changed=true;
     }
     if(changed){d.actions=d.actions.slice(-500);store(d);}
@@ -193,7 +230,7 @@
     if(entry.status==='EXECUTED')return false;
     if(!['APPROVED','FAILED'].includes(entry.status))throw new Error('Action is not in the approved state.');
     if(Date.parse(entry.expiresAt)<=Date.now()){event(entry,'EXPIRED','Approval window elapsed.');audit(d,entry,'ai-action-expired','Approval window elapsed.');store(d);return false;}
-    const a={...entry.arguments,id:entry.id,expiresAt:entry.expiresAt,validationStatus:'validated',reason:entry.reason,expectedEffect:entry.expectedEffect};
+    const a={...entry.arguments,id:entry.id,owner:entry.owner,expiresAt:entry.expiresAt,validationStatus:'validated',reason:entry.reason,expectedEffect:entry.expectedEffect};
     const issue=validateAction(a,d);if(issue)throw new Error(issue);
     applyMutation(d,a);event(entry,'EXECUTED','Application state persisted successfully.');entry.executionResult={ok:true,at:new Date().toISOString()};audit(d,entry,'ai-action-executed','Application state persisted successfully.');store(d);return true;
   }
@@ -216,7 +253,7 @@
     if(entry.status==='AWAITING_APPROVAL'){
       const yes=document.createElement('button'),no=document.createElement('button'),cancel=document.createElement('button');
       yes.textContent='Approve and execute';no.textContent='Reject';cancel.textContent='Cancel proposal';cancel.type='button';
-      yes.onclick=async()=>{yes.disabled=true;no.disabled=true;cancel.disabled=true;try{await withActionLock(entry.id,()=>{if(!persistTransition(entry.id,'APPROVED','Explicit user approval recorded.'))throw new Error('Proposal is no longer awaiting approval.');executeApproved(entry.id);});status.textContent='Approved, executed, and audited.';}catch(error){try{const current=readDb();if(current.ok){const failed=current.data.actions?.find(x=>x.id===entry.id);if(failed)failed.executionResult={ok:false,reason:clip(error.message,240),at:new Date().toISOString()};store(current.data);}persistTransition(entry.id,'FAILED',error.message);}catch{}status.textContent='Action failed: '+error.message;}renderStoredActions();};
+      yes.onclick=async()=>{if(!activeAuth()||entry.owner!==authOwner){status.textContent='Sign in as the account that received this proposal before approving it.';return;}yes.disabled=true;no.disabled=true;cancel.disabled=true;try{await withActionLock(entry.id,()=>{if(!persistTransition(entry.id,'APPROVED','Explicit user approval recorded.'))throw new Error('Proposal is no longer awaiting approval.');executeApproved(entry.id);});status.textContent='Approved, executed, and audited.';}catch(error){try{const current=readDb();if(current.ok){const failed=current.data.actions?.find(x=>x.id===entry.id);if(failed)failed.executionResult={ok:false,reason:clip(error.message,240),at:new Date().toISOString()};store(current.data);}persistTransition(entry.id,'FAILED',error.message);}catch{}status.textContent='Action not applied: '+clip(error.message,220);}renderStoredActions();};
       no.onclick=()=>{try{persistTransition(entry.id,'REJECTED','Rejected by student.');status.textContent='Proposal rejected; no application changes were made.';}catch(error){status.textContent='Could not record rejection: '+error.message;}renderStoredActions();};
       cancel.onclick=()=>{try{persistTransition(entry.id,'CANCELLED','Cancelled before approval.');status.textContent='Proposal cancelled; no application changes were made.';}catch(error){status.textContent='Could not cancel proposal: '+error.message;}renderStoredActions();};
       card.append(yes,no,cancel);
@@ -241,19 +278,21 @@
   }
   async function sendMessage(message) {
     if(busy||!message||message.length>4000)return;
+    if(!activeAuth()){status.textContent='Sign in with the configured identity provider before contacting THE SYSTEM.';return;}
     setBusy(true);retryButton.hidden=true;add(message,'user');input.value='';status.textContent=navigator.onLine?'THE SYSTEM is thinking…':'You are offline; trying the Worker connection…';
     const snapshot=readDb(),ctx=contextFor(snapshot),requestId=crypto.randomUUID();controller=new AbortController();timedOut=false;
     const timer=setTimeout(()=>{timedOut=true;controller?.abort();},20000);
     try {
-      const response=await fetch(API,{method:'POST',headers:{'Content-Type':'application/json'},signal:controller.signal,body:JSON.stringify({message,studyContext:ctx.text,contextSnapshotAt:ctx.snapshotAt,clientRequestId:requestId})});
+      const response=await fetch(API,{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+authCredential},signal:controller.signal,body:JSON.stringify({message,studyContext:ctx.text,contextSnapshotAt:ctx.snapshotAt,clientRequestId:requestId})});
       const data=await response.json().catch(()=>({}));
+      if(response.status===401){clearAuth('Your identity session expired or was rejected. Sign in again.');throw new Error('Sign-in expired; no application action was applied.');}
       if(!response.ok)throw new Error(typeof data.error==='string'?data.error:'Request failed ('+response.status+').');
       if(typeof data.reply!=='string'||!data.reply.trim())throw new Error('The AI returned an empty response.');
       add(data.reply.trim(),'system');
       const latest=readDb();
       const changed=latest.ok&&snapshot.ok&&latest.data.updatedAt!==snapshot.data.updatedAt;
       if(latest.ok){const d=latest.data;d.conversations=Array.isArray(d.conversations)?d.conversations:[];d.conversations.push({role:'user',text:message.slice(0,1200),at:new Date().toISOString()},{role:'assistant',text:data.reply.trim().slice(0,1200),at:new Date().toISOString()});d.conversations=d.conversations.slice(-24);try{store(d);}catch{status.textContent='Response received; local history could not be saved.';}}
-      recordProposals(Array.isArray(data.actions)?data.actions:[]);renderStoredActions();
+      await recordProposals(Array.isArray(data.actions)?data.actions:[]);renderStoredActions();
       const stamp=new Date(ctx.snapshotAt).toLocaleTimeString();
       if(!navigator.onLine)status.textContent='Response received · context snapshot '+stamp+' · you are offline now.';
       else if(changed)status.textContent='Response received · application data changed since the context snapshot; review actions carefully.';
@@ -278,10 +317,13 @@
   input.addEventListener('input',()=>{if(input.value.trim()!==retryMessage)retryButton.hidden=true;});
   $('clear-chat').addEventListener('click',()=>{if(!confirm('Clear saved conversation history?'))return;const current=readDb();if(!current.ok){status.textContent=current.reason;return;}current.data.conversations=[];try{store(current.data);log.replaceChildren();status.textContent='Conversation history cleared; action audit is preserved.';}catch(error){status.textContent='History could not be cleared: '+clip(error.message,160);}});
   $('save-chat').addEventListener('click',()=>{const current=readDb();if(!current.ok){status.textContent=current.reason;return;}current.data.settings=current.data.settings||{};current.data.settings.shareContext=$('chat-context').checked;try{store(current.data);status.textContent='Context-sharing preference saved.';}catch(error){status.textContent='Preference could not be saved: '+clip(error.message,160);}});
+  signoutButton.addEventListener('click',()=>{clearAuth('Signed out. Sign in again to contact THE SYSTEM.');try{window.google?.accounts?.id?.disableAutoSelect();}catch{}});
   window.addEventListener('offline',()=>{if(!busy)status.textContent='Offline · local study tools remain available; THE SYSTEM needs a connection.';});
-  window.addEventListener('online',()=>{if(!busy)status.textContent='Online · THE SYSTEM is ready when you send a message.';});
-  const current=readDb();if(current.ok)$('chat-context').checked=current.data.settings?.shareContext!==false;
+  window.addEventListener('online',()=>{if(!authCredential)setupAuth();if(!busy)status.textContent=authCredential?'Online · THE SYSTEM is ready when you send a message.':'Online · sign in to use THE SYSTEM.';});
+  const current=readDb();if(current.ok)$('chat-context').checked=current.data.settings?.shareContext===true;
   if(!navigator.onLine)status.textContent='Offline · local study tools remain available; THE SYSTEM needs a connection.';
   if(current.ok){for(const m of (current.data.conversations||[]).slice(-24)){if(m&&typeof m.text==='string')add(m.text,m.role==='assistant'?'system':'user');}}
   renderStoredActions();
+  addDevProposalPanel();
+  setupAuth();
 })();

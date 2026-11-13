@@ -23,7 +23,11 @@ The catalog crosswalks the 20 Physics, 20 Chemistry and 14 Mathematics units in 
 
 Daily quests use available minutes, backlog, priorities, evidence and revision due dates. Mastery requires topic logs and multiple independent Main and Advanced PYQ sets. The 21-day evaluation defers when evidence is limited. Revision dates follow recorded revision sessions. The planner blocks overlapping timed quests.
 
-Study logs and PYQ results are student-entered and are not externally authenticated. XP tracks logged effort and never stands in for academic mastery. AI guidance is advisory, application-changing proposals require approval, and it cannot grant mastery or fabricate study evidence. Sharing a bounded progress summary is optional. The static frontend and Worker do not provide user authentication; CORS is not authentication. No autonomous repository-editing bridge is included.
+Study logs and PYQ results are student-entered and are not externally authenticated. XP tracks logged effort and never stands in for academic mastery. AI guidance is advisory, application-changing proposals require approval, and it cannot grant mastery or fabricate study evidence. Sharing a bounded progress summary is opt-in and unchecked by default. THE SYSTEM now requires a Google ID token verified by the Worker; its bearer credential is held in memory only and expires with the identity token. Local records remain in browser localStorage, are not encrypted or isolated by Google account, and are accessible to anyone using that browser profile.
+
+Worker auth, origin validation, namespace, secret verification and the account-owner setup checklist are documented in [backend/README.md](backend/README.md). This branch has not been deployed. The Worker OAuth client ID and account-specific rate-limit namespace are intentionally unconfigured; do not treat CORS or rate limiting as identity.
+
+The signed-in Profile page supports source-snippet development proposals: Gemini may return a validated, reviewable diff and suggested tests, but never executes code or modifies the repository. Explicit approval only downloads a patch; there is no direct GitHub inspection or repository write integration. Any later GitHub App integration must be narrowly scoped, audited and separately approved before branch/PR writes, pushes, merges or deployments.
 
 ## Backend secrets
 
