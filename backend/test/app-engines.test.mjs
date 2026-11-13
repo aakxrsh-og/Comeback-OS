@@ -14,7 +14,7 @@ async function loadApp() {
   const context={document,localStorage:{getItem:k=>data.get(k)||null,setItem:(k,v)=>data.set(k,v)},crypto:webcrypto,console,navigator:{},URL,Blob,confirm:()=>true,setTimeout:()=>0,addEventListener(){},window:{}};
   vm.createContext(context);
   const [catalog,app]=await Promise.all([readFile(new URL('../../syllabus.js',import.meta.url),'utf8'),readFile(new URL('../../app.js',import.meta.url),'utf8')]);
-  vm.runInContext(catalog+'\n'+app+'\nglobalThis.__engines={get state(){return state},mastery,refresh,generate,eval21,revisionCandidates,recommendNext,focus,active,overlaps,recoverQuest};',context);
+  vm.runInContext(catalog+'\n'+app+'\nglobalThis.__engines={get state(){return state},mastery,topicMastery,topicKeys,recordEngine,refresh,generate,eval21,revisionCandidates,recommendNext,focus,active,overlaps,recoverQuest};',context);
   return context.__engines;
 }
 
@@ -51,4 +51,13 @@ test('recommendation engine explains an evidence-based next action and uncertain
 
 test('overdue quests recover in place and timed overlaps are rejected',async()=>{
   const app=await loadApp(),s=app.state,today=new Date().toISOString().slice(0,10);const q={id:'q1',title:'Existing task',minutes:30,remainingMinutes:30,date:'2000-01-01',time:'09:00',done:false};s.quests.push(q);assert.equal(app.overlaps({date:today,time:'09:15',minutes:30},'q2'),false);assert.equal(app.overlaps({date:today,time:'09:15',minutes:30},'q1'),false);q.date=today;assert.equal(app.overlaps({date:today,time:'09:15',minutes:30},'q2'),true);app.recoverQuest('q1');assert.equal(q.date,today);assert.equal(q.time,'');assert.equal(s.quests.length,1);
+});
+
+test('topic mastery is evidence-derived, separate from completion, and engine runs persist explainable summaries',async()=>{
+  const app=await loadApp(),s=app.state,c=s.chapters.find(x=>x.mainTopics?.length);assert.ok(c);const key='main:'+c.mainTopics[0];c.topicStatus[key]='completed';
+  const evidence={chapterId:c.id,topicKey:key};s.sessions.push({...evidence,type:'Concept study',minutes:30},{...evidence,type:'Revision',minutes:20});
+  s.attempts.push({...evidence,exam:'JEE Main',independent:true,total:10,correct:9},{...evidence,exam:'JEE Main',independent:true,total:10,correct:8});
+  s.assessments.push({...evidence,total:100,score:80});app.refresh();assert.equal(app.topicMastery(c,key).mastered,true);assert.equal(c.topicStatus[key],'completed');
+  assert.equal(s.settings.engineRuns.mastery.status,'ok');assert.ok(s.settings.engineRuns.mastery.lastRunAt);assert.ok(s.settings.engineRuns.mastery.inputSummary.taggedSessions>=2);assert.ok(s.settings.engineRuns.mastery.outputSummary.explainability);
+  const sparse=await loadApp(),c2=sparse.state.chapters.find(x=>x.mainTopics?.length);assert.equal(sparse.topicMastery(c2,'main:'+c2.mainTopics[0]).mastered,false);
 });
