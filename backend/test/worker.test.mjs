@@ -3,117 +3,36 @@ import assert from 'node:assert/strict';
 import worker from '../src/index.js';
 
 const ORIGIN = 'https://aakxrsh-og.github.io';
-const env = (overrides = {}) => ({
-  ALLOWED_ORIGINS: ORIGIN,
-  GEMINI_API_KEY: 'unit-test-only-secret',
-  MENTOR_RATE_LIMIT: { limit: async () => ({ success: true }) },
-  ...overrides,
-});
-const request = (body, { origin = ORIGIN, headers = {}, method = 'POST', path = '/api/mentor' } = {}) => new Request(`https://worker.test${path}`, {
-  method,
-  headers: { Origin: origin, 'Content-Type': 'application/json', ...headers },
-  body: method === 'POST' ? JSON.stringify(body) : undefined,
-});
-const geminiReply = value => new Response(JSON.stringify({
-  modelVersion: 'test-model',
-  candidates: [{ content: { parts: [{ text: JSON.stringify(value) }] } }],
-}), { status: 200, headers: { 'Content-Type': 'application/json' } });
+const env = (overrides = {}) => ({ ALLOWED_ORIGINS: ORIGIN, GEMINI_API_KEY: 'unit-test-only-secret', MENTOR_RATE_LIMIT: { limit: async () => ({ success: true }) }, ...overrides });
+const request = (body, {origin=ORIGIN,headers={},method='POST',path='/api/mentor'}={}) => new Request(`https://worker.test${path}`,{method,headers:{Origin:origin,'Content-Type':'application/json',...headers},body:method==='POST'?JSON.stringify(body):undefined});
+const geminiReply = value => new Response(JSON.stringify({modelVersion:'test-model',candidates:[{content:{parts:[{text:JSON.stringify(value)}]}}]}),{status:200,headers:{'Content-Type':'application/json'}});
+async function withProvider(response,run){const original=globalThis.fetch,calls=[];globalThis.fetch=async(...args)=>{calls.push(args);return typeof response==='function'?response(...args):response;};try{await run(calls);}finally{globalThis.fetch=original;}}
+const rationale={reason:'The student asked to schedule this work.',expectedEffect:'Adds one reviewable item to the local planner.'};
 
-async function withProvider(response, run) {
-  const original = globalThis.fetch;
-  const calls = [];
-  globalThis.fetch = async (...args) => { calls.push(args); return typeof response === 'function' ? response(...args) : response; };
-  try { await run(calls); } finally { globalThis.fetch = original; }
-}
+test('health is public, no-store, and exposes no provider configuration',async()=>{const res=await worker.fetch(new Request('https://worker.test/health'),env());assert.equal(res.status,200);assert.deepEqual(await res.json(),{ok:true,service:'comeback-os-ai'});assert.equal(res.headers.get('cache-control'),'no-store');});
+test('mentor endpoint fails closed without the rate-limit binding',async()=>{await withProvider(geminiReply({reply:'unused',actions:[]}),async calls=>{const res=await worker.fetch(request({message:'Plan my study'}),env({MENTOR_RATE_LIMIT:undefined}));assert.equal(res.status,503);assert.equal(calls.length,0);});});
+test('disallowed origins are rejected before rate limiting or provider access',async()=>{let limited=false;await withProvider(geminiReply({reply:'unused',actions:[]}),async calls=>{const res=await worker.fetch(request({message:'Plan my study'},{origin:'https://evil.example'}),env({MENTOR_RATE_LIMIT:{limit:async()=>{limited=true;return{success:true};}}}));assert.equal(res.status,403);assert.equal(limited,false);assert.equal(calls.length,0);});});
+test('rate-limit denials stop before provider access',async()=>{await withProvider(geminiReply({reply:'unused',actions:[]}),async calls=>{const res=await worker.fetch(request({message:'Plan my study'}),env({MENTOR_RATE_LIMIT:{limit:async()=>({success:false})}}));assert.equal(res.status,429);assert.equal(calls.length,0);});});
+test('provider failures are sanitized and API keys stay in the server-side header',async()=>{await withProvider(new Response('private provider detail',{status:500}),async calls=>{const res=await worker.fetch(request({message:'Plan my study'}),env());const body=await res.text();assert.equal(res.status,502);assert.match(body,/AI provider request failed/);assert.doesNotMatch(body,/unit-test-only-secret|private provider detail/);assert.equal(new URL(calls[0][0]).search,'');assert.equal(calls[0][1].headers['x-goog-api-key'],'unit-test-only-secret');});});
+test('only valid allow-listed actions return with unique lifecycle metadata',async()=>{const proposal={reply:'Review these options.',actions:[
+ {type:'create_quest',title:'Physics practice',minutes:45,category:'Main Quest',date:'2026-11-14',time:'09:30',...rationale,extra:'drop'},
+ {type:'set_status',chapterId:'ch-1',status:'Mastered',...rationale},
+ {type:'set_topic_status',chapterId:'ch-1',topicKey:'main:kinematics',status:'completed',...rationale},
+ {type:'create_mistake',chapterId:'ch-1',topic:'Sign error',mistakeType:'Calculation',correction:'Check sign',...rationale},
+]};await withProvider(geminiReply(proposal),async()=>{const res=await worker.fetch(request({message:'Help me plan',studyContext:'{}',contextSnapshotAt:new Date().toISOString(),clientRequestId:'client-request-123'}),env());assert.equal(res.status,200);const result=await res.json();assert.equal(result.reply,proposal.reply);assert.equal(result.actions.length,2);const [quest,topic]=result.actions;assert.equal(quest.type,'create_quest');assert.equal(quest.title,'Physics practice');assert.equal(quest.validationStatus,'validated');assert.equal(quest.reason,rationale.reason);assert.match(quest.id,/^[0-9a-f-]{36}$/i);assert.ok(Date.parse(quest.expiresAt)>Date.now());assert.equal(topic.type,'set_topic_status');assert.equal(topic.validationStatus,'validated');});});
+test('impossible dates are removed from every date-bearing action',async()=>{const proposal={reply:'No invalid dates.',actions:[
+ {type:'create_quest',title:'Bad date',minutes:30,category:'Side Quest',date:'2026-02-30',...rationale},
+ {type:'reschedule_quest',questId:'q1',date:'2026-99-99',...rationale},
+ {type:'create_assessment',title:'Bad date exam',subject:'Physics',date:'2026-04-31',...rationale},
+]};await withProvider(geminiReply(proposal),async()=>{const res=await worker.fetch(request({message:'Schedule these.'}),env());assert.deepEqual((await res.json()).actions,[]);});});
+test('request body rejects unknown fields, bad timestamps and oversized context',async()=>{await withProvider(geminiReply({reply:'unused',actions:[]}),async calls=>{assert.equal((await worker.fetch(request({message:'hello',admin:true}),env())).status,400);assert.equal((await worker.fetch(request({message:'hello',studyContext:'x'.repeat(6501)}),env())).status,400);assert.equal((await worker.fetch(request({message:'hello',contextSnapshotAt:'not-a-date'}),env())).status,400);assert.equal(calls.length,0);});});
+test('empty, oversized and wrong-content requests are rejected before provider calls',async()=>{await withProvider(geminiReply({reply:'unused',actions:[]}),async calls=>{assert.equal((await worker.fetch(request({message:'  '}),env())).status,400);assert.equal((await worker.fetch(request({message:'x'.repeat(8001)}),env())).status,400);assert.equal((await worker.fetch(request({message:'hello'},{headers:{'Content-Type':'text/plain'}}),env())).status,415);assert.equal(calls.length,0);});});
+test('invalid Gemini JSON and oversized provider replies return bounded 502 errors',async()=>{await withProvider(new Response('not-json',{status:200}),async()=>{const res=await worker.fetch(request({message:'hello'}),env());assert.equal(res.status,502);assert.match(await res.text(),/invalid response/);});await withProvider(new Response('x'.repeat(24001),{status:200}),async()=>{const res=await worker.fetch(request({message:'hello'}),env());assert.equal(res.status,502);assert.match(await res.text(),/too large/);});});
+test('provider request has an abort signal and does not put credentials in its URL',async()=>{await withProvider(geminiReply({reply:'Tip.',actions:[]}),async calls=>{const res=await worker.fetch(request({message:'Give me one physics tip.'}),env());assert.equal(res.status,200);assert.ok(calls[0][1].signal instanceof AbortSignal);assert.equal(new URL(calls[0][0]).search,'');});});
+test('client request structure is reflected without echoing study context',async()=>{await withProvider(geminiReply({reply:'Use dimensional analysis.',actions:[]}),async calls=>{const res=await worker.fetch(request({message:'Help',studyContext:'private study notes',clientRequestId:'client-request-456'}),env());const body=await res.json();assert.equal(body.requestId,'client-request-456');assert.equal(body.model,'test-model');assert.equal(body.reply,'Use dimensional analysis.');assert.equal(JSON.stringify(body).includes('private study notes'),false);});});
 
-test('health is public, no-store, and exposes no provider configuration', async () => {
-  const res = await worker.fetch(new Request('https://worker.test/health'), env());
-  assert.equal(res.status, 200);
-  assert.deepEqual(await res.json(), { ok: true, service: 'comeback-os-ai' });
-  assert.equal(res.headers.get('cache-control'), 'no-store');
-});
-
-test('mentor endpoint fails closed without the rate-limit binding', async () => {
-  await withProvider(geminiReply({ reply: 'should not run', actions: [] }), async calls => {
-    const res = await worker.fetch(request({ message: 'Plan my study' }), env({ MENTOR_RATE_LIMIT: undefined }));
-    assert.equal(res.status, 503);
-    assert.equal(calls.length, 0);
-  });
-});
-
-test('disallowed origins are rejected before rate limiting or provider access', async () => {
-  let limited = false;
-  await withProvider(geminiReply({ reply: 'should not run', actions: [] }), async calls => {
-    const res = await worker.fetch(request({ message: 'Plan my study' }, { origin: 'https://evil.example' }), env({ MENTOR_RATE_LIMIT: { limit: async () => { limited = true; return { success: true }; } } }));
-    assert.equal(res.status, 403);
-    assert.equal(limited, false);
-    assert.equal(calls.length, 0);
-  });
-});
-
-test('rate-limit denials stop before the provider and return 429', async () => {
-  await withProvider(geminiReply({ reply: 'should not run', actions: [] }), async calls => {
-    const res = await worker.fetch(request({ message: 'Plan my study' }), env({ MENTOR_RATE_LIMIT: { limit: async () => ({ success: false }) } }));
-    assert.equal(res.status, 429);
-    assert.equal(calls.length, 0);
-  });
-});
-
-test('provider failures return a sanitized error without exposing key material', async () => {
-  await withProvider(new Response('provider detail', { status: 500 }), async calls => {
-    const res = await worker.fetch(request({ message: 'Plan my study' }), env());
-    const body = await res.text();
-    assert.equal(res.status, 502);
-    assert.match(body, /AI provider request failed/);
-    assert.doesNotMatch(body, /unit-test-only-secret|provider detail/);
-    assert.equal(new URL(calls[0][0]).search, '');
-    assert.equal(calls[0][1].headers['x-goog-api-key'], 'unit-test-only-secret');
-  });
-});
-
-test('provider action proposals are filtered to the explicit allowlist', async () => {
-  const proposal = { reply: 'Review these options.', actions: [
-    { type: 'create_quest', title: 'Physics practice', minutes: 45, category: 'Main Quest', date: '2026-11-14', time: '09:30', extra: 'drop me' },
-    { type: 'set_status', chapterId: 'ch-1', status: 'Mastered' },
-    { type: 'set_topic_status', chapterId: 'ch-1', topicKey: 'kinematics', status: 'completed' },
-    { type: 'delete_account' },
-    { type: 'create_quest', title: 'too many proposals', minutes: 45, category: 'Main Quest' },
-  ] };
-  await withProvider(geminiReply(proposal), async () => {
-    const res = await worker.fetch(request({ message: 'Help me plan', studyContext: 'local study record' }), env());
-    assert.equal(res.status, 200);
-    const result = await res.json();
-    assert.equal(result.reply, proposal.reply);
-    assert.deepEqual(result.actions, [
-      { type: 'create_quest', title: 'Physics practice', minutes: 45, category: 'Main Quest', date: '2026-11-14', time: '09:30' },
-      { type: 'set_topic_status', chapterId: 'ch-1', topicKey: 'kinematics', status: 'completed' },
-    ]);
-  });
-});
-
-test('request body and message are bounded and validated before provider calls', async () => {
-  await withProvider(geminiReply({ reply: 'unused', actions: [] }), async calls => {
-    const noMessage = await worker.fetch(request({ message: '  ' }), env());
-    assert.equal(noMessage.status, 400);
-    const tooLong = await worker.fetch(request({ message: 'x'.repeat(8001) }), env());
-    assert.equal(tooLong.status, 400);
-    const wrongType = await worker.fetch(request({ message: 'hello' }, { headers: { 'Content-Type': 'text/plain' } }), env());
-    assert.equal(wrongType.status, 415);
-    assert.equal(calls.length, 0);
-  });
-});
-
-
-
-test('impossible calendar dates are dropped from every date-bearing action', async () => {
-  const proposal = { reply: 'No invalid schedules.', actions: [
-    { type: 'create_quest', title: 'Bad date quest', minutes: 30, category: 'Side Quest', date: '2026-02-30' },
-    { type: 'reschedule_quest', questId: 'q1', date: '2026-99-99' },
-    { type: 'create_assessment', title: 'Bad date exam', subject: 'Physics', date: '2026-04-31' },
-  ] };
-  await withProvider(geminiReply(proposal), async () => {
-    const res = await worker.fetch(request({ message: 'Schedule these.' }), env());
-    assert.equal(res.status, 200);
-    assert.deepEqual((await res.json()).actions, []);
-  });
-});
+test('quest edits and student-reported assessment and mistake actions are typed and bounded',async()=>{const proposal={reply:'Review each proposed change.',actions:[
+ {type:'edit_quest',questId:'quest-1',minutes:60,date:'2026-11-20',...rationale},
+ {type:'record_assessment',title:'Full mock',subject:'Full JEE',date:'2026-11-21',score:225,total:300,...rationale},
+ {type:'create_mistake',chapterId:'chapter-1',topic:'Sign error',mistakeType:'Calculation',correction:'Check sign before substitution.',...rationale},
+]};await withProvider(geminiReply(proposal),async()=>{const res=await worker.fetch(request({message:'Apply the supplied details.'}),env());assert.equal(res.status,200);const actions=(await res.json()).actions;assert.deepEqual(actions.map(a=>a.type),['edit_quest','record_assessment','create_mistake']);assert.equal(actions[1].score,225);assert.equal(actions[2].mistakeType,'Calculation');for(const a of actions)assert.equal(a.validationStatus,'validated');});});

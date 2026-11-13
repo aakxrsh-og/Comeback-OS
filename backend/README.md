@@ -49,6 +49,12 @@ Successful response:
 
 The Worker accepts only the configured browser origin, caps inbound and provider response sizes, uses a fixed educational system instruction, and never sends the API key to the browser. AI actions are proposals; the app validates them again and requires explicit approval.
 
+Each returned action has a Worker-generated unique ID, a short expiry, a validation marker, and a reason/effect preview. The browser validates chapter and quest IDs against the current local database, persists lifecycle transitions and audit events, and executes only after explicit approval. The Worker cannot verify those IDs against application ownership because it has no application database. Frontend idempotency is local to the user's browser profile; it is not a server-side transaction ledger.
+
+CORS is not user authentication. The static GitHub Pages client has no confidential credential that can authenticate a user to this public Worker. Do not treat rate limiting as identity or authorization. A production user-authentication layer would require a separate identity/session design.
+
+The Worker never executes source code, shell commands, Git operations, merges, or deployments. This repository does not contain an authenticated, sandboxed development bridge. The development assistant requested for the app therefore remains blocked; do not treat mentor action proposals as autonomous repository development.
+
 ## Release boundary
 
 This release branch has not been deployed. Before deployment, configure the encrypted provider secret, confirm the Pages origin and account rate-limit namespace, and exercise `/health` and `/api/mentor` from the hosted app. CORS is not authentication; do not treat this personal endpoint as safe for broad public sharing without an appropriate access-control design.

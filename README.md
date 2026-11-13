@@ -15,7 +15,7 @@ Serve the repository root over HTTP(S). GitHub Pages serves this project at http
 
 ## Data safety and migration
 
-Before migrating an older schema, the app copies the original serialized value to comeback-os.backup.pre-2.5 and merges legacy chapters and record arrays. Profile offers a downloadable copy. Import keeps a timestamped copy of current data first. Browser storage can still be cleared; export regularly.
+Before migrating older schemas, the app copies the exact original serialized value to a versioned localStorage backup (`comeback-os.backup.pre-2.5` for older pre-2.5 data, or `comeback-os.backup.pre-v8` for later schemas). Migration merges legacy chapters and record arrays; schema v8 adds preparation targets and the approval/action ledger. Profile offers a downloadable copy. Import keeps a timestamped copy of current data first. Browser storage can still be cleared; export regularly.
 
 The catalog crosswalks the 20 Physics, 20 Chemistry and 14 Mathematics units in the official 2027 NTA JEE Main Paper 1 syllabus and the latest published 2026 JEE Advanced syllabus. It labels each chapter as included, partial, or not listed and stores separate exam-specific topic checklists. It is a chapter-level study aid, not an official clause-by-clause equivalence; review the linked source documents. No 2027 Advanced syllabus is claimed.
 
@@ -23,7 +23,7 @@ The catalog crosswalks the 20 Physics, 20 Chemistry and 14 Mathematics units in 
 
 Daily quests use available minutes, backlog, priorities, evidence and revision due dates. Mastery requires topic logs and multiple independent Main and Advanced PYQ sets. The 21-day evaluation defers when evidence is limited. Revision dates follow recorded revision sessions. The planner blocks overlapping timed quests.
 
-Study logs and PYQ results are student-entered and are not externally authenticated. XP tracks logged effort and never stands in for academic mastery. AI guidance is advisory and cannot create study evidence or modify mastery. Sharing a compact progress summary is optional.
+Study logs and PYQ results are student-entered and are not externally authenticated. XP tracks logged effort and never stands in for academic mastery. AI guidance is advisory, application-changing proposals require approval, and it cannot grant mastery or fabricate study evidence. Sharing a bounded progress summary is optional. The static frontend and Worker do not provide user authentication; CORS is not authentication. No autonomous repository-editing bridge is included.
 
 ## Backend secrets
 
