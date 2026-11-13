@@ -7,8 +7,22 @@ The PWA calls this Worker for THE SYSTEM mentor. The Worker holds the provider k
 - Set `ALLOWED_ORIGINS` to the exact GitHub Pages origin (no path or trailing slash).
 - Set `GEMINI_MODEL` to a model enabled for the provider project.
 - Add `GEMINI_API_KEY` as an encrypted Worker secret. If a key was previously exposed, revoke it and create a replacement directly in the provider console. Never share a key in chat, commit it, or print it in a terminal.
-- `wrangler.toml` defines `MENTOR_RATE_LIMIT` at 10 requests per minute per IP. Cloudflare's built-in rate limits are approximate and location-scoped; they are an abuse-control layer, not strict global quotas. The Worker returns 503 if the binding is missing or fails.
-- Keep the rate-limit namespace ID unique within the Cloudflare account if another Worker uses the same binding namespace.
+- This repository has no Cloudflare account access and does not claim a configured namespace ID. The Worker fails closed with HTTP 503 until `MENTOR_RATE_LIMIT` is bound.
+- Cloudflare's built-in rate limits are approximate and location-scoped, not strict global quotas. The account owner must confirm that the chosen ID is unique.
+
+Before deployment, add this exact binding shape to `wrangler.toml`, replacing the placeholder with a positive integer namespace ID that the Cloudflare account owner confirms is unique:
+
+```toml
+[[ratelimits]]
+name = "MENTOR_RATE_LIMIT"
+namespace_id = "<ACCOUNT_UNIQUE_POSITIVE_INTEGER>"
+
+  [ratelimits.simple]
+  limit = 10
+  period = 60
+```
+
+Cloudflare rate-limit bindings use developer-defined integer namespace IDs; there is no repository-side value to verify without account access. See [Cloudflare rate-limit bindings](https://developers.cloudflare.com/workers/runtime-apis/bindings/rate-limit/).
 
 For secret setup, see [Cloudflare Worker secrets](https://developers.cloudflare.com/workers/configuration/secrets/) and the [Cloudflare rate-limit binding documentation](https://developers.cloudflare.com/workers/runtime-apis/bindings/rate-limit/).
 
