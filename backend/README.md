@@ -1,30 +1,16 @@
-# COMEBACK OS 2.5 — Secure AI Backend Starter
+# COMEBACK OS 2.5 — Cloudflare Worker
 
-This ZIP contains a **backend starter**, not a full replacement for the current PWA. It provides a small Cloudflare Worker proxy for Gemini so the provider key is not exposed in browser JavaScript or GitHub Pages.
+The PWA calls this Worker for THE SYSTEM mentor. The Worker holds the provider key, validates and bounds requests and responses, limits actions to a small schema, and requires a rate-limit binding. The app continues to work offline when the service is unavailable.
 
-## Before deploying
+## Configuration
 
-- The previously shared Gemini key should be treated as compromised. Revoke it in the provider console and create a fresh one. Do not paste either key into ChatGPT, GitHub files, screenshots, or this ZIP.
-- Because this is for a teenage student, have a parent/guardian supervise the provider account, its terms, billing settings and usage limits.
-- The current public app does not yet call this endpoint. Deploying this Worker alone does **not** make The System live; the frontend integration is a separate step.
-- Add an effective per-IP rate limit / abuse protection in Cloudflare before exposing the endpoint publicly. CORS is not authentication and does not stop non-browser clients.
+- Set `ALLOWED_ORIGINS` to the exact GitHub Pages origin (no path or trailing slash).
+- Set `GEMINI_MODEL` to a model enabled for the provider project.
+- Add `GEMINI_API_KEY` as an encrypted Worker secret. If a key was previously exposed, revoke it and create a replacement directly in the provider console. Never share a key in chat, commit it, or print it in a terminal.
+- `wrangler.toml` defines `MENTOR_RATE_LIMIT` at 10 requests per minute per IP. Cloudflare's built-in rate limits are approximate and location-scoped; they are an abuse-control layer, not strict global quotas. The Worker returns 503 if the binding is missing or fails.
+- Keep the rate-limit namespace ID unique within the Cloudflare account if another Worker uses the same binding namespace.
 
-## Deploy through the Cloudflare dashboard
-
-1. Sign in to Cloudflare and open **Workers & Pages**.
-2. Create a Worker named `comeback-os-ai`.
-3. Choose the option to edit/upload code, then add `src/index.js` as the Worker entry point. If using Wrangler, deploy this folder with `npx wrangler deploy`.
-4. In Worker **Settings → Variables and Secrets**, add a variable named `ALLOWED_ORIGINS` with value `https://aakxrsh-og.github.io` (or your exact Pages origin).
-5. Add `GEMINI_MODEL` as a normal variable. Start with the model configured in `wrangler.toml`; if it is unavailable to your API project, choose a currently enabled text-generation model in Google AI Studio.
-6. Under **Variables and Secrets**, add `GEMINI_API_KEY` and choose type **Secret**. Paste the newly generated key directly into the secret field. Do not send it to ChatGPT or commit it to GitHub.
-7. Deploy the Worker.
-8. Open `https://YOUR-WORKER.YOUR-SUBDOMAIN.workers.dev/health`. It should return `ok: true` and `providerConfigured: true`. This checks configuration only, not a live generation request.
-
-Cloudflare's encrypted secret instructions:
-https://developers.cloudflare.com/workers/configuration/secrets/
-
-Gemini REST API reference:
-https://ai.google.dev/api/generate-content
+For secret setup, see [Cloudflare Worker secrets](https://developers.cloudflare.com/workers/configuration/secrets/) and the [Cloudflare rate-limit binding documentation](https://developers.cloudflare.com/workers/runtime-apis/bindings/rate-limit/).
 
 ## Endpoint contract
 
@@ -42,17 +28,13 @@ Successful response:
 ```json
 {
   "reply": "Mentor response...",
+  "actions": [],
   "model": "model-version"
 }
 ```
 
-The Worker accepts only the configured browser origin, caps request sizes, uses a fixed educational system instruction, and never sends the API key to the browser.
+The Worker accepts only the configured browser origin, caps inbound and provider response sizes, uses a fixed educational system instruction, and never sends the API key to the browser. AI actions are proposals; the app validates them again and requires explicit approval.
 
-## Important production work still required
+## Release boundary
 
-- Add Cloudflare rate limiting / abuse protection and monitor provider usage.
-- Add a proper authentication/session design before sharing the endpoint beyond this personal app.
-- Connect the frontend chat UI to `/api/mentor`, show loading/error states, and avoid sending unnecessary personal data.
-- Test the endpoint from the deployed Pages origin and check the browser console/network panel.
-- Keep local-first quest, calendar and mastery logic functional if AI is unavailable.
-- The existing JEE chapter catalogue is only a 30-chapter starter set, not a complete official syllabus.
+This release branch has not been deployed. Before deployment, configure the encrypted provider secret, confirm the Pages origin and account rate-limit namespace, and exercise `/health` and `/api/mentor` from the hosted app. CORS is not authentication; do not treat this personal endpoint as safe for broad public sharing without an appropriate access-control design.

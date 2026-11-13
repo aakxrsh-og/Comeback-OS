@@ -17,7 +17,7 @@ Serve the repository root over HTTP(S). GitHub Pages serves this project at http
 
 Before migrating an older schema, the app copies the original serialized value to comeback-os.backup.pre-2.5 and merges legacy chapters and record arrays. Profile offers a downloadable copy. Import keeps a timestamped copy of current data first. Browser storage can still be cleared; export regularly.
 
-JEE Main coverage is labeled against the official 2027 NTA syllabus. Advanced uses the latest official 2026 syllabus verified for this release. Chapter-level flags aid navigation and are not a clause-by-clause crosswalk. Review the official syllabus for exact boundaries; no 2027 Advanced syllabus is claimed.
+The catalog crosswalks the 20 Physics, 20 Chemistry and 14 Mathematics units in the official 2027 NTA JEE Main Paper 1 syllabus and the latest published 2026 JEE Advanced syllabus. It labels each chapter as included, partial, or not listed and stores separate exam-specific topic checklists. It is a chapter-level study aid, not an official clause-by-clause equivalence; review the linked source documents. No 2027 Advanced syllabus is claimed.
 
 ## Engines and limitations
 
