@@ -1,123 +1,330 @@
-/* COMEBACK OS — The System chat integration. No API key is stored here. */
 (() => {
-  "use strict";
-  const API_URL = "https://comeback-os-ai1.aakxrshs.workers.dev/api/mentor";
-  const DB_KEY = "comeback-os";
-  const MAX_MESSAGE = 4000;
-
-  const css = document.createElement("style");
-  css.textContent = `
-  #cos-ai-launcher{position:fixed;right:16px;bottom:88px;z-index:9998;border:1px solid #49d9ff;border-radius:999px;padding:13px 17px;background:linear-gradient(120deg,#1266a6,#087d9b);color:#fff;font:700 12px system-ui;box-shadow:0 0 22px #49d9ff44}
-  #cos-ai-panel{position:fixed;z-index:9999;right:12px;bottom:145px;width:min(420px,calc(100vw - 24px));height:min(620px,calc(100dvh - 175px));display:none;flex-direction:column;overflow:hidden;background:#071426;border:1px solid #276080;border-radius:16px;color:#e8f5ff;font:14px system-ui;box-shadow:0 18px 60px #000b}
-  #cos-ai-panel.open{display:flex}#cos-ai-head{display:flex;justify-content:space-between;padding:14px;background:#0d2942;border-bottom:1px solid #276080}
-  #cos-ai-head strong{color:#49d9ff;letter-spacing:1px}#cos-ai-close{background:none;border:0;color:#e8f5ff;font-size:22px}
-  #cos-ai-messages{flex:1;overflow:auto;padding:12px;display:flex;flex-direction:column;gap:10px}
-  .cos-ai-msg{max-width:90%;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.5;padding:10px 12px;border-radius:12px;background:#102b43;border:1px solid #244c68}
-  .cos-ai-msg.user{align-self:flex-end;background:#103c58}.cos-ai-msg.system{align-self:flex-start}
-  #cos-ai-status{font-size:11px;color:#9bb5c8;padding:0 12px 8px;min-height:18px}
-  #cos-ai-form{padding:10px;border-top:1px solid #244c68;display:grid;gap:8px}
-  #cos-ai-context{font-size:11px;color:#9bb5c8;display:flex;align-items:center;gap:7px}
-  #cos-ai-input{width:100%;min-height:72px;box-sizing:border-box;resize:vertical;background:#04101e;color:#e8f5ff;border:1px solid #315c78;border-radius:9px;padding:10px;font:14px system-ui}
-  #cos-ai-send{justify-self:end;border:1px solid #49d9ff;border-radius:9px;padding:10px 16px;background:#087d9b;color:white;font-weight:700}
-  #cos-ai-send:disabled{opacity:.5}@media(max-width:480px){#cos-ai-panel{right:8px;width:calc(100vw - 16px);height:min(66dvh,560px)}}
-  `;
-  document.head.appendChild(css);
-
-  const launcher = document.createElement("button");
-  launcher.id = "cos-ai-launcher";
-  launcher.type = "button";
-  launcher.textContent = "✧ THE SYSTEM";
-  launcher.setAttribute("aria-expanded", "false");
-
-  const panel = document.createElement("section");
-  panel.id = "cos-ai-panel";
-  panel.setAttribute("aria-label", "The System AI mentor");
-  panel.innerHTML = `
-    <header id="cos-ai-head"><div><strong>THE SYSTEM</strong><div style="font-size:10px;color:#9bb5c8">COMEBACK OS · STUDY MENTOR</div></div><button id="cos-ai-close" type="button" aria-label="Close chat">×</button></header>
-    <div id="cos-ai-messages" aria-live="polite"></div><div id="cos-ai-status">Ready when you are.</div>
-    <form id="cos-ai-form"><label id="cos-ai-context"><input id="cos-ai-include" type="checkbox" checked> Include a brief summary of my study progress</label>
-    <textarea id="cos-ai-input" maxlength="${MAX_MESSAGE}" placeholder="Ask about a JEE concept, plan, revision, or today's priorities…" required></textarea><button id="cos-ai-send" type="submit">SEND ↗</button></form>`;
-  document.body.append(launcher, panel);
-
-  const messages = panel.querySelector("#cos-ai-messages");
-  const input = panel.querySelector("#cos-ai-input");
-  const send = panel.querySelector("#cos-ai-send");
-  const status = panel.querySelector("#cos-ai-status");
-  const includeContext = panel.querySelector("#cos-ai-include");
-
-  function addMessage(text, who) {
-    const el = document.createElement("div");
-    el.className = "cos-ai-msg " + who;
-    el.textContent = text;
-    messages.appendChild(el);
-    messages.scrollTop = messages.scrollHeight;
-  }
-
-  function studySummary() {
+  const API = 'https://comeback-os-ai1.aakxrshs.workers.dev/api/mentor';
+  const AUTH_CONFIG_API = 'https://comeback-os-ai1.aakxrshs.workers.dev/api/auth/config';
+  const KEY = 'comeback-os';
+  const MAX_CONTEXT = 5600;
+  const ACTION_TTL_MS = 10 * 60 * 1000;
+  const $ = id => document.getElementById(id);
+  const log = $('chat-log'), form = $('chat-form'), input = $('chat-input');
+  const status = $('chat-status'), actions = $('action-proposals');
+  const cancelButton = $('cancel-chat'), retryButton = $('retry-chat');
+  let busy = false, controller = null, retryMessage = '', timedOut = false, authCredential = '', authOwner = '', authExpiresAt = 0, authClientId = '', authWaits = 0, googleInitialized = false;
+  const authStatus = $('auth-status'), googleButton = $('google-signin'), signoutButton = $('signout');
+  const authNotice=document.createElement('p');authNotice.className='muted';authNotice.textContent='Study records remain in this browser profile and are not separated by Google account. Sending a study summary is optional and off by default.';$('auth-panel').append(authNotice);
+  const identityScript=document.createElement('script');identityScript.src='https://accounts.google.com/gsi/client';identityScript.async=true;identityScript.defer=true;identityScript.onerror=()=>{authStatus.textContent='Google sign-in could not be loaded. Local study tools remain available.';};document.head.append(identityScript);
+  function clearAuth(message='Signed out. Sign in to use THE SYSTEM.') { authCredential='';authOwner='';authExpiresAt=0;googleButton.replaceChildren();signoutButton.hidden=true;authStatus.textContent=message;status.textContent='Sign in to use the live mentor service.';try{window.google?.accounts?.id?.disableAutoSelect();}catch{}if(authClientId)setTimeout(setupAuth,0); }
+  function activeAuth() { if(!authCredential||Date.now()>=authExpiresAt*1000){if(authCredential)clearAuth('Your sign-in expired. Sign in again.');return false;}return true; }
+  async function subjectHash(subject) { const bytes=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(subject));return [...new Uint8Array(bytes)].map(x=>x.toString(16).padStart(2,'0')).join(''); }
+  async function setupAuth() {
     try {
-      const db = JSON.parse(localStorage.getItem(DB_KEY) || "{}");
-      const chapters = Array.isArray(db.chapters) ? db.chapters : [];
-      const quests = Array.isArray(db.quests) ? db.quests : [];
-      const sessions = Array.isArray(db.sessions) ? db.sessions : [];
-      const attempts = Array.isArray(db.attempts) ? db.attempts : [];
-      const subjects = {};
-      chapters.forEach(c => {
-        const s = String(c.subject || "Other");
-        subjects[s] ||= { total: 0, mastered: 0, backlog: 0, inProgress: 0 };
-        subjects[s].total++;
-        if (c.mastered || c.status === "Mastered") subjects[s].mastered++;
-        if (c.status === "Backlog") subjects[s].backlog++;
-        if (c.status === "In progress") subjects[s].inProgress++;
-      });
-      return JSON.stringify({
-        note: "User-entered study summary; not independently verified.",
-        subjects,
-        activeQuests: quests.filter(q => !q.done).slice(0, 8).map(q => ({
-          title: String(q.title || "").slice(0, 100),
-          minutes: Number(q.minutes) || 0
-        })),
-        studySessionsRecorded: sessions.length,
-        pyqSessionsRecorded: attempts.length
-      }).slice(0, 2200);
-    } catch { return "Study progress could not be read."; }
+      if(googleInitialized&&window.google?.accounts?.id){if(!googleButton.childElementCount)window.google.accounts.id.renderButton(googleButton,{theme:'outline',size:'large',text:'signin_with',shape:'rectangular'});return;}
+      const response=await fetch(AUTH_CONFIG_API,{cache:'no-store'});if(!response.ok)throw new Error('Sign-in is not configured by the service owner.');
+      const config=await response.json();if(!config.configured||typeof config.clientId!=='string'||!/^[A-Za-z0-9._-]{10,255}\.apps\.googleusercontent\.com$/.test(config.clientId))throw new Error('Sign-in is not configured by the service owner.');authClientId=config.clientId;
+      if(!window.google?.accounts?.id){if(authWaits++<20){setTimeout(setupAuth,250);return;}throw new Error('Identity provider did not load.');}
+      window.google.accounts.id.initialize({client_id:authClientId,callback:async result=>{try{const encoded=result.credential.split('.')[1].replace(/-/g,'+').replace(/_/g,'/'),claims=JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(encoded+'='.repeat((4-encoded.length%4)%4)),c=>c.charCodeAt(0))));if(claims.aud!==authClientId||!claims.sub||!claims.exp||claims.exp*1000<=Date.now())throw new Error();authCredential=result.credential;authOwner=await subjectHash(claims.sub);authExpiresAt=claims.exp;googleButton.replaceChildren();signoutButton.hidden=false;authStatus.textContent='Signed in · session expires '+new Date(authExpiresAt*1000).toLocaleTimeString();status.textContent='Signed in. THE SYSTEM is ready.';setTimeout(()=>activeAuth(),Math.max(0,authExpiresAt*1000-Date.now()));renderStoredActions();}catch{clearAuth('Sign-in could not be validated. Try again.');}}});googleInitialized=true;
+      googleButton.replaceChildren();window.google.accounts.id.renderButton(googleButton,{theme:'outline',size:'large',text:'signin_with',shape:'rectangular'});authWaits=0;authStatus.textContent='Sign in with Google. Your session stays in memory and expires with the identity token.';
+    } catch { authStatus.textContent='Sign-in is unavailable until the Worker identity configuration is complete.'; }
   }
+  function addDevProposalPanel() {
+    const profile=$('profile'),panel=document.createElement('details');panel.className='card';
+    const summary=document.createElement('summary'),title=document.createElement('b');title.textContent='Controlled development task proposals';summary.append(title);panel.append(summary);
+    const description=document.createElement('p');description.textContent='Send one selected source snippet and a task to the authenticated Worker. It returns a reviewable patch and suggested tests. It never runs code or writes to GitHub; your approval only downloads the patch.';panel.append(description);
+    const form=document.createElement('form');form.className='form';form.id='dev-task-form';
+    const field=(labelText,id,tag='textarea')=>{const label=document.createElement('label');label.textContent=labelText;const el=document.createElement(tag);el.id=id;if(tag==='textarea')el.rows=id==='dev-task-source'?12:3;label.append(el);form.append(label);return el;};
+    const task=field('Task description','dev-task-prompt');task.maxLength=2000;task.required=true;
+    const path=field('Repository-relative source path','dev-task-path','input');path.maxLength=160;path.required=true;path.placeholder='backend/src/index.js';
+    const source=field('Selected source snippet','dev-task-source');source.maxLength=8000;source.required=true;
+    const consentLabel=document.createElement('label');consentLabel.className='check';const consent=document.createElement('input');consent.type='checkbox';consent.id='dev-task-consent';consent.required=true;consentLabel.append(consent,document.createTextNode(' I approve sending this selected source and task to the AI provider.'));form.append(consentLabel);
+    const submit=document.createElement('button');submit.textContent='Generate reviewable proposal';form.append(submit);panel.append(form);
+    const output=document.createElement('div');output.id='dev-task-output';output.className='stack';output.setAttribute('aria-live','polite');panel.append(output);profile.append(panel);
+    form.addEventListener('submit',async event=>{event.preventDefault();output.replaceChildren();if(!activeAuth()){output.textContent='Sign in before requesting a development proposal.';return;}if(!consent.checked){output.textContent='Explicit source-sharing approval is required.';return;}submit.disabled=true;output.textContent='Generating a non-executable proposal…';try{const response=await fetch(API.replace('/api/mentor','/api/dev-tasks/propose'),{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+authCredential},body:JSON.stringify({task:task.value,files:[{path:path.value,content:source.value}]})});const data=await response.json().catch(()=>({}));if(response.status===401){clearAuth('Your identity session expired. Sign in again.');throw new Error('Sign-in expired.');}if(!response.ok)throw new Error(typeof data.error==='string'?data.error:'Proposal service unavailable.');if(data.owner!==authOwner||Date.parse(data.expiresAt)<=Date.now()||data.execution!=='never-executed')throw new Error('The proposal did not pass identity and expiry checks.');
+      output.replaceChildren();const heading=document.createElement('p');heading.textContent='PROPOSED · '+data.summary+' · expires '+new Date(data.expiresAt).toLocaleString();output.append(heading);for(const [label,items] of [['Suggested tests (not executed)',data.tests],['Risks',data.risks]]){const h=document.createElement('b');h.textContent=label;output.append(h);const list=document.createElement('ul');for(const item of items||[]){const li=document.createElement('li');li.textContent=item;list.append(li);}output.append(list);}const pre=document.createElement('pre');pre.className='card';pre.textContent=data.patch;pre.style.overflowX='auto';output.append(pre);
+      const audit=(statusValue)=>{let rows=[];try{rows=JSON.parse(localStorage.getItem('comeback-os-dev-task-audit')||'[]');if(!Array.isArray(rows))rows=[];}catch{}rows.push({id:data.id,owner:data.owner,status:statusValue,at:new Date().toISOString(),baseRef:data.baseRef});localStorage.setItem('comeback-os-dev-task-audit',JSON.stringify(rows.slice(-100)));};
+      const approve=document.createElement('button');approve.textContent='Approve and download patch';approve.onclick=()=>{if(!activeAuth()||authOwner!==data.owner||Date.parse(data.expiresAt)<=Date.now()){output.insertAdjacentText('afterbegin','Approval blocked: sign-in changed or proposal expired.');return;}audit('APPROVED_FOR_DOWNLOAD');const link=document.createElement('a');link.href=URL.createObjectURL(new Blob([data.patch],{type:'text/x-diff'}));link.download='comeback-os-'+data.id+'.patch';link.click();setTimeout(()=>URL.revokeObjectURL(link.href),1000);approve.disabled=true;output.insertAdjacentText('afterbegin','Approved patch downloaded. No repository files were changed.');};
+      const reject=document.createElement('button');reject.type='button';reject.textContent='Reject proposal';reject.onclick=()=>{audit('REJECTED');output.replaceChildren();output.textContent='Proposal rejected; no file or repository change was made.';};output.append(approve,reject);source.value='';
+    }catch(error){output.textContent='Development proposal unavailable: '+clip(error.message,220);}finally{submit.disabled=false;}});
+  }
+  const clip = (v, max = 180) => String(v ?? '').replace(/[\u0000-\u001f]/g, ' ').slice(0, max);
+  const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const markdown = t => esc(t).replace(/```([\s\S]*?)```/g,'<pre><code>$1</code></pre>').replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>').replace(/\*([^*]+)\*/g,'<em>$1</em>').replace(/\$([^$\n]+)\$/g,'<span class="math">$1</span>').replace(/\n/g,'<br>');
 
-  launcher.addEventListener("click", () => {
-    const open = panel.classList.toggle("open");
-    launcher.setAttribute("aria-expanded", String(open));
-    if (open && !messages.childElementCount) addMessage("I’m The System. Tell me what you’re studying, where you’re stuck, or what needs adjusting. I can help you plan, but recorded mastery remains based on actual evidence.", "system");
-    if (open) input.focus();
-  });
-  panel.querySelector("#cos-ai-close").addEventListener("click", () => {
-    panel.classList.remove("open");
-    launcher.setAttribute("aria-expanded", "false");
-  });
-
-  panel.querySelector("#cos-ai-form").addEventListener("submit", async event => {
-    event.preventDefault();
-    const message = input.value.trim();
-    if (!message || message.length > MAX_MESSAGE || send.disabled) return;
-    addMessage(message, "user");
-    input.value = "";
-    send.disabled = true;
-    status.textContent = "The System is thinking…";
+  function readDb() {
+    const raw = localStorage.getItem(KEY);
+    if (!raw) return {ok:false, raw:null, data:null, reason:'No application database is available.'};
     try {
-      const response = await fetch(API_URL, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message, studyContext: includeContext.checked ? studySummary() : "" })
-      });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data.error || `Request failed (${response.status}).`);
-      if (typeof data.reply !== "string" || !data.reply.trim()) throw new Error("The AI returned an empty response.");
-      addMessage(data.reply.trim(), "system");
-      status.textContent = "Connected · " + (data.model || "Gemini");
-    } catch (err) {
-      addMessage("I couldn't reach the AI service: " + String(err.message || err), "system");
-      status.textContent = "Connection issue · try again later";
-    } finally {
-      send.disabled = false;
-      input.focus();
+      const data = JSON.parse(raw);
+      if (!data || typeof data !== 'object' || Array.isArray(data)) throw new Error('invalid database shape');
+      return {ok:true, raw, data};
+    } catch {
+      return {ok:false, raw, data:null, reason:'The saved application data is malformed; it was left unchanged.'};
     }
-  });
+  }
+  function store(d) {
+    d.updatedAt = new Date().toISOString();
+    localStorage.setItem(KEY, JSON.stringify(d));
+    try { window.ComebackOS?.refresh?.(); } catch { /* Persisted state remains authoritative if a view cannot refresh. */ }
+  }
+  function add(text, who) {
+    const el = document.createElement('article');
+    el.className = 'card message ' + who;
+    el.innerHTML = markdown(text);
+    log.append(el);
+    log.scrollTop = log.scrollHeight;
+  }
+  const validDate = s => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(s || '')) return false;
+    const d = new Date(s + 'T12:00:00Z');
+    return !Number.isNaN(d.getTime()) && d.toISOString().slice(0,10) === s;
+  };
+  const validTime = s => !s || /^([01]\d|2[0-3]):[0-5]\d$/.test(s);
+  const validMinutes = n => Number.isInteger(n) && n >= 5 && n <= 360;
+  const chapterById = (d,id) => (Array.isArray(d.chapters) ? d.chapters : []).find(c => c.id === id);
+  const questById = (d,id) => (Array.isArray(d.quests) ? d.quests : []).find(q => q.id === id);
+  const topicKeys = c => [...(c.topics||[]),...(c.mainTopics||[]).map(t=>'main:'+t),...(c.advancedTopics||[]).map(t=>'advanced:'+t)];
+
+  function summarizeContext(d, unavailableReason = '') {
+    const now = Date.now(), saved = Date.parse(d.updatedAt || '');
+    const lists = ['chapters','quests','sessions','attempts','assessments','mistakes','evaluations','calendar','achievements'];
+    const availability = Object.fromEntries(lists.map(k => [k, Array.isArray(d[k]) ? 'available' : 'not recorded']));
+    const chapters = Array.isArray(d.chapters) ? d.chapters : [];
+    const sessions = Array.isArray(d.sessions) ? d.sessions : [];
+    const attempts = Array.isArray(d.attempts) ? d.attempts : [];
+    const quests = Array.isArray(d.quests) ? d.quests : [];
+    const assessments = Array.isArray(d.assessments) ? d.assessments : [];
+    const mistakes = Array.isArray(d.mistakes) ? d.mistakes : [];
+    const selected = chapters.map(c => ({
+      id:clip(c.id,100), name:clip(c.name,100), subject:clip(c.subject,30), status:clip(c.status,24),
+      mastered:!!c.mastered, priority:!!c.priority, topicStatuses:Object.entries(c.topicStatus||{}).slice(0,12).map(([k,v])=>[clip(k,80),clip(v,24)]),
+      mainCoverage:clip(c.mainCoverage,20), advancedCoverage:clip(c.advancedCoverage,20), lastRevision:c.lastRevision||null,
+      evidence:{studySessions:sessions.filter(s=>s.chapterId===c.id).length,mainIndependentSets:attempts.filter(a=>a.chapterId===c.id&&a.independent&&a.exam==='JEE Main').length,advancedIndependentSets:attempts.filter(a=>a.chapterId===c.id&&a.independent&&a.exam==='JEE Advanced').length}
+    })).sort((a,b)=>Number(b.priority)-Number(a.priority)+Number(b.status==='Backlog')-Number(a.status==='Backlog'))
+      .filter(c=>c.priority||c.status==='Backlog'||c.mastered||c.topicStatuses.length||c.evidence.studySessions||c.evidence.mainIndependentSets||c.evidence.advancedIndependentSets||c.lastRevision).slice(0,18);
+    const subjectStats = ['Physics','Chemistry','Mathematics'].map(subject=>{
+      const ids = new Set(chapters.filter(c=>c.subject===subject).map(c=>c.id));
+      const rows = attempts.filter(a=>ids.has(a.chapterId));
+      const total = rows.reduce((n,a)=>n+(Number(a.total)||0),0);
+      const correct = rows.reduce((n,a)=>n+(Number(a.correct)||0),0);
+      return {subject,chapters:ids.size,mastered:chapters.filter(c=>c.subject===subject&&c.mastered).length,studyMinutes:sessions.filter(s=>ids.has(s.chapterId)).reduce((n,s)=>n+(Number(s.minutes)||0),0),pyqAttempted:total,pyqCorrect:correct};
+    });
+    const payload = {
+      schemaVersion:d.version??null, snapshotAt:new Date().toISOString(),
+      freshness:{lastSavedAt:d.updatedAt||null,ageMinutes:Number.isFinite(saved)?Math.max(0,Math.round((now-saved)/60000)):null,stale:Number.isFinite(saved)&&(now-saved)>24*60*60000},
+      availability:{...availability,profile:d.profile?'available':'not recorded',plannerSettings:d.settings?'available':'not recorded',unavailableReason:unavailableReason||undefined},
+      preparation:{targetExam:clip(d.profile?.targetExam||'not recorded',30),targetYear:clip(d.profile?.targetYear||'not recorded',8),availableMinutes:Number(d.settings?.availableMinutes)||null,level:Number(d.profile?.level)||null,rank:clip(d.profile?.rank||'not recorded',40),xp:Number(d.profile?.xp)||0,streak:Number(d.profile?.streak)||0,bestStreak:Number(d.profile?.bestStreak)||0,achievements:(d.achievements||[]).slice(-8).map(a=>clip(a.title||a.id,80))},
+      syllabus:{chapterCount:chapters.length,mastered:chapters.filter(c=>c.mastered).length,backlog:chapters.filter(c=>c.status==='Backlog').length,inProgress:chapters.filter(c=>c.status==='In progress').length,chapters:selected},
+      activeQuests:quests.filter(q=>!q.done&&!q.cancelledAt&&!q.skippedAt).slice(0,8).map(q=>({id:clip(q.id,100),title:clip(q.title,100),category:clip(q.category,30),minutes:Number(q.remainingMinutes||q.minutes)||null,date:q.date||null,time:q.time||null,chapterId:q.chapterId||null})),
+      recentQuestHistory:quests.filter(q=>q.done||q.cancelledAt||q.skippedAt).slice(-6).reverse().map(q=>({title:clip(q.title,100),category:clip(q.category,30),done:!!q.done,cancelled:!!q.cancelledAt,date:q.date||null,completedAt:q.completedAt||null})),
+      planner:Array.isArray(d.calendar)?d.calendar.slice(-8).map(x=>({title:clip(x.title,80),date:x.date||null,type:clip(x.type,30)})):[],
+      sessions:sessions.slice(-7).reverse().map(s=>({chapterId:s.chapterId||null,type:clip(s.type,30),minutes:Number(s.minutes)||0,at:s.at||null,notes:clip(s.notes,100)})),
+      pyqSets:attempts.slice(-7).reverse().map(a=>({chapterId:a.chapterId||null,exam:clip(a.exam,30),difficulty:clip(a.difficulty,20),attempted:Number(a.total)||0,correct:Number(a.correct)||0,independent:!!a.independent,at:a.at||null})),
+      assessments:assessments.slice(-5).reverse().map(a=>({title:clip(a.title,80),subject:clip(a.subject,30),date:a.date||null,score:a.score==null?null:Number(a.score),total:a.total==null?null:Number(a.total)})),
+      unresolvedMistakes:mistakes.filter(m=>!m.corrected).slice(-5).reverse().map(m=>({chapterId:m.chapterId||null,topic:clip(m.topic,80),type:clip(m.type,30),correction:clip(m.correction,120)})),
+      evaluations:(d.evaluations||[]).slice(-2).map(x=>({at:x.at||null,enough:!!x.enough,score:x.score??null,studyDays:x.studyDays??null,accuracy:x.accuracy??null})),
+      conversationHistory:(d.conversations||[]).slice(-8).map(m=>({role:m.role==='assistant'?'assistant':'user',text:clip(m.text,260)})),
+      subjectAnalytics:subjectStats,
+      recommendation:window.ComebackOS?.recommendNext?.()||null
+    };
+    const trimOrder = ['recentQuestHistory','planner','sessions','pyqSets','assessments','unresolvedMistakes','conversationHistory','syllabus.chapters'];
+    let text = JSON.stringify(payload);
+    while (text.length > MAX_CONTEXT) {
+      const path = trimOrder.find(p=>p==='syllabus.chapters'?payload.syllabus.chapters.length>6:payload[p].length>2);
+      if (!path) break;
+      if(path==='syllabus.chapters')payload.syllabus.chapters.pop();else payload[path].pop();
+      text=JSON.stringify(payload);
+    }
+    if(text.length>MAX_CONTEXT) return {text:JSON.stringify({snapshotAt:payload.snapshotAt,availability:payload.availability,unavailableReason:'Detailed context exceeded the safe size limit.'}),snapshotAt:payload.snapshotAt};
+    return {text,snapshotAt:payload.snapshotAt};
+  }
+  function contextFor(dataState) {
+    if (!$('chat-context').checked) return {text:JSON.stringify({available:false,omittedByUser:true,snapshotAt:new Date().toISOString()}),snapshotAt:new Date().toISOString()};
+    if (!dataState.ok) return summarizeContext({},dataState.reason);
+    try { return summarizeContext(dataState.data); }
+    catch { return summarizeContext({},'Some saved application records could not be read.'); }
+  }
+
+  function overlap(candidate, excludeId, d) {
+    if (!candidate.date || !candidate.time) return false;
+    const start = t=>Number(t.slice(0,2))*60+Number(t.slice(3));
+    const a=start(candidate.time),duration=Number(candidate.minutes)||0;
+    return (d.quests||[]).some(q=>q.id!==excludeId&&!q.done&&!q.cancelledAt&&q.date===candidate.date&&q.time&&a<start(q.time)+Number(q.remainingMinutes||q.minutes)&&a+duration>start(q.time));
+  }
+  function validateAction(a,d) {
+    if(!a||typeof a!=='object'||Array.isArray(a))return 'Action payload is malformed.';
+    if(typeof a.id!=='string'||a.id.length<8||a.id.length>100)return 'Action has no valid unique ID.';
+    if(!Number.isFinite(Date.parse(a.expiresAt||''))||Date.parse(a.expiresAt)<=Date.now())return 'Action is expired or has an invalid expiry.';
+    if(a.validationStatus!=='validated')return 'Action did not pass Worker validation.';
+    if(!activeAuth()||!authOwner||a.owner!==authOwner)return 'This proposal belongs to a different or expired sign-in session.';
+    if(typeof a.reason!=='string'||!a.reason.trim()||a.reason.length>300)return 'Action is missing a concise reason.';
+    if(typeof a.expectedEffect!=='string'||!a.expectedEffect.trim()||a.expectedEffect.length>300)return 'Action is missing an expected effect.';
+    if(a.type==='create_quest'){
+      if(typeof a.title!=='string'||!a.title.trim()||a.title.length>120||!validMinutes(a.minutes)||!['Main Quest','Side Quest','Revision','Assessment'].includes(a.category))return 'Quest fields are invalid.';
+      if(a.date&&!validDate(a.date))return 'Quest date is invalid.';if(!validTime(a.time||''))return 'Quest time is invalid.';if(a.chapterId&&!chapterById(d,a.chapterId))return 'Chapter no longer exists.';
+      if(overlap(a,null,d))return 'Quest conflicts with an existing scheduled quest.';return '';
+    }
+    if(a.type==='edit_quest'){
+      const q=questById(d,a.questId);if(!q||q.done||q.cancelledAt)return 'Quest no longer exists or is inactive.';
+      if(a.title!==undefined&&(!String(a.title).trim()||String(a.title).length>120))return 'Quest title is invalid.';
+      if(a.minutes!==undefined&&!validMinutes(a.minutes))return 'Quest duration is invalid.';
+      if(a.category!==undefined&&!['Main Quest','Side Quest','Revision','Assessment'].includes(a.category))return 'Quest category is invalid.';
+      if(a.date!==undefined&&!validDate(a.date))return 'Quest date is invalid.';if(a.time!==undefined&&!validTime(a.time))return 'Quest time is invalid.';
+      if(a.chapterId!==undefined&&a.chapterId&&!chapterById(d,a.chapterId))return 'Chapter no longer exists.';
+      if(!['title','minutes','category','date','time','chapterId'].some(k=>a[k]!==undefined))return 'No edit was provided.';
+      if(overlap({...q,...a,minutes:a.minutes??q.minutes},q.id,d))return 'Edited quest conflicts with another quest.';return '';
+    }
+    if(a.type==='set_priority')return chapterById(d,a.chapterId)?'':'Chapter no longer exists.';
+    if(a.type==='set_status')return chapterById(d,a.chapterId)&&['Not started','In progress','Backlog'].includes(a.status)?'':'Chapter status is invalid.';
+    if(a.type==='reschedule_quest'){
+      const q=questById(d,a.questId);if(!q||q.done||q.cancelledAt)return 'Quest no longer exists or is inactive.';
+      if(!validDate(a.date)||!validTime(a.time||''))return 'Reschedule date or time is invalid.';
+      return overlap({...q,date:a.date,time:a.time||''},q.id,d)?'Quest conflicts with another scheduled quest.':'';
+    }
+    if(a.type==='set_availability')return Number.isInteger(a.minutes)&&a.minutes>=15&&a.minutes<=720?'':'Availability is invalid.';
+    if(a.type==='set_topic_status'){
+      const c=chapterById(d,a.chapterId);return c&&topicKeys(c).includes(a.topicKey)&&['not-started','backlog','in-progress','completed'].includes(a.status)?'':'Topic or status is invalid.';
+    }
+    if(a.type==='create_assessment')return typeof a.title==='string'&&a.title.trim()&&a.title.length<=120&&['Physics','Chemistry','Mathematics','Full JEE'].includes(a.subject)&&validDate(a.date)?'':'Assessment plan is invalid.';
+    if(a.type==='record_assessment')return typeof a.title==='string'&&a.title.trim()&&a.title.length<=120&&['Physics','Chemistry','Mathematics','Full JEE'].includes(a.subject)&&validDate(a.date)&&Number.isInteger(a.score)&&Number.isInteger(a.total)&&a.total>0&&a.score>=0&&a.score<=a.total?'':'Assessment result is invalid.';
+    if(a.type==='create_mistake')return chapterById(d,a.chapterId)&&typeof a.topic==='string'&&a.topic.trim()&&a.topic.length<=120&&['Conceptual','Calculation','Misread question','Time management'].includes(a.mistakeType)&&typeof a.correction==='string'&&a.correction.trim()&&a.correction.length<=240?'':'Mistake entry is invalid.';
+    return 'Action type is not allowed.';
+  }
+  function actionArgs(a) {
+    const meta=new Set(['id','owner','reason','expectedEffect','createdAt','expiresAt','validationStatus']);
+    return Object.fromEntries(Object.entries(a).filter(([k])=>!meta.has(k)));
+  }
+  function event(entry,statusValue,result='') {
+    const at=new Date().toISOString();entry.status=statusValue;entry.updatedAt=at;entry.lifecycle=Array.isArray(entry.lifecycle)?entry.lifecycle:[];entry.lifecycle.push({status:statusValue,at,result:clip(result,240)});
+  }
+  function audit(d,entry,type,result='') {
+    d.audit=Array.isArray(d.audit)?d.audit:[];d.audit.push({at:new Date().toISOString(),type,actionId:entry.id,actionType:entry.type,result:clip(result,240)});d.audit=d.audit.slice(-1000);
+  }
+  async function recordProposals(list) {
+    const current=readDb();if(!current.ok)return;
+    const d=current.data;d.actions=Array.isArray(d.actions)?d.actions:[];const known=new Set(d.actions.map(x=>x.id));let changed=false;
+    for(const candidate of (Array.isArray(list)?list:[]).slice(0,3)){
+      if(!candidate||typeof candidate!=='object'||Array.isArray(candidate))continue;
+      const proposedId=typeof candidate.id==='string'&&candidate.id.length<=100?candidate.id:crypto.randomUUID();
+      if(known.has(proposedId)){audit(d,{id:proposedId,type:clip(candidate.type,50)},'ai-action-duplicate','Duplicate action ID rejected.');changed=true;continue;}
+      const a={...candidate,id:proposedId};
+      const issue=validateAction(a,d);if(issue){audit(d,{id:proposedId,type:clip(a.type,50)},'ai-action-invalid',issue);known.add(proposedId);changed=true;continue;}
+      const entry={id:a.id,type:a.type,owner:a.owner,arguments:actionArgs(a),reason:clip(a.reason,300),expectedEffect:clip(a.expectedEffect,300),createdAt:a.createdAt||new Date().toISOString(),expiresAt:a.expiresAt,validationResult:{status:'passed',checkedAt:new Date().toISOString()},status:'PROPOSED',lifecycle:[]};
+      event(entry,'VALIDATED','Worker schema and current application state passed validation.');event(entry,'AWAITING_APPROVAL','No application change has been made.');audit(d,entry,'ai-action-proposed','Awaiting explicit approval.');d.actions.push(entry);known.add(entry.id);changed=true;
+    }
+    if(changed){d.actions=d.actions.slice(-500);store(d);}
+  }
+  function applyMutation(d,a) {
+    const now=new Date().toISOString();
+    if(a.type==='create_quest')d.quests.push({id:crypto.randomUUID(),title:a.title.trim(),chapterId:a.chapterId||undefined,minutes:a.minutes,category:a.category,date:a.date||'',time:a.time||'',done:false,createdAt:now,aiProposed:true,actionId:a.id});
+    else if(a.type==='edit_quest'){const q=questById(d,a.questId);for(const k of ['title','minutes','category','date','time','chapterId'])if(a[k]!==undefined)q[k]=a[k];q.updatedAt=now;}
+    else if(a.type==='set_priority'){const c=chapterById(d,a.chapterId);c.priority=!c.priority;}
+    else if(a.type==='set_status'){const c=chapterById(d,a.chapterId);c.status=a.status;}
+    else if(a.type==='reschedule_quest'){const q=questById(d,a.questId);q.date=a.date;q.time=a.time||'';q.updatedAt=now;}
+    else if(a.type==='set_availability')d.settings.availableMinutes=a.minutes;
+    else if(a.type==='set_topic_status'){const c=chapterById(d,a.chapterId),previous=c.topicStatus?.[a.topicKey]||'not-started';c.topicStatus=c.topicStatus||{};c.topicStatus[a.topicKey]=a.status;c.topicHistory=c.topicHistory||{};c.topicEvidence=c.topicEvidence||{};c.topicHistory[a.topicKey]=c.topicHistory[a.topicKey]||[];c.topicHistory[a.topicKey].push({from:previous,to:a.status,at:now,source:'approved mentor proposal'});c.topicEvidence[a.topicKey]={source:'approved mentor proposal',at:now};const vals=Object.values(c.topicStatus);c.status=vals.length&&vals.every(v=>['completed','mastered'].includes(v))?'Completed':vals.some(v=>['in-progress','completed'].includes(v))?'In progress':vals.includes('backlog')?'Backlog':'Not started';}
+    else if(a.type==='create_assessment')d.assessments.push({id:crypto.randomUUID(),title:a.title.trim(),subject:a.subject,date:a.date,score:null,total:null,aiProposed:true,actionId:a.id,createdAt:now});
+    else if(a.type==='record_assessment')d.assessments.push({id:crypto.randomUUID(),title:a.title.trim(),subject:a.subject,date:a.date,score:a.score,total:a.total,reportedBy:'student-approved proposal',aiProposed:true,actionId:a.id,createdAt:now});
+    else if(a.type==='create_mistake')d.mistakes.push({id:crypto.randomUUID(),chapterId:a.chapterId,topic:a.topic.trim(),type:a.mistakeType,correction:a.correction.trim(),at:now,corrected:false,reportedBy:'student-approved proposal',actionId:a.id});
+  }
+  function executeApproved(id) {
+    const current=readDb();if(!current.ok)throw new Error(current.reason);
+    const d=current.data;d.actions=Array.isArray(d.actions)?d.actions:[];const entry=d.actions.find(x=>x.id===id);
+    if(!entry)throw new Error('Approved action record was not found.');
+    if(entry.status==='EXECUTED')return false;
+    if(!['APPROVED','FAILED'].includes(entry.status))throw new Error('Action is not in the approved state.');
+    if(Date.parse(entry.expiresAt)<=Date.now()){event(entry,'EXPIRED','Approval window elapsed.');audit(d,entry,'ai-action-expired','Approval window elapsed.');store(d);return false;}
+    const a={...entry.arguments,id:entry.id,owner:entry.owner,expiresAt:entry.expiresAt,validationStatus:'validated',reason:entry.reason,expectedEffect:entry.expectedEffect};
+    const issue=validateAction(a,d);if(issue)throw new Error(issue);
+    applyMutation(d,a);event(entry,'EXECUTED','Application state persisted successfully.');entry.executionResult={ok:true,at:new Date().toISOString()};audit(d,entry,'ai-action-executed','Application state persisted successfully.');store(d);return true;
+  }
+  function persistTransition(id,next,result='') {
+    const current=readDb();if(!current.ok)throw new Error(current.reason);
+    const d=current.data;d.actions=Array.isArray(d.actions)?d.actions:[];const entry=d.actions.find(x=>x.id===id);
+    if(!entry)throw new Error('Proposal record was not found.');
+    if(entry.status==='EXECUTED'||entry.status==='REJECTED'||entry.status==='CANCELLED'||entry.status==='EXPIRED')return false;
+    if(next==='APPROVED'&&entry.status!=='AWAITING_APPROVAL'&&!(entry.status==='FAILED'&&entry.executionResult?.ok===false)&&entry.status!=='APPROVED')return false;
+    event(entry,next,result);audit(d,entry,'ai-action-'+next.toLowerCase(),result);store(d);return true;
+  }
+  function withActionLock(id,run){return navigator.locks?.request?navigator.locks.request('comeback-os-action-'+id,{mode:'exclusive'},run):Promise.resolve(run());}
+  function cardFor(entry) {
+    const card=document.createElement('article');card.className='card proposal';card.dataset.actionId=entry.id;
+    const heading=document.createElement('b');heading.textContent=entry.type.replaceAll('_',' ').toUpperCase()+' · '+entry.status.replaceAll('_',' ');
+    const explanation=document.createElement('p');explanation.textContent=entry.reason;
+    const effect=document.createElement('p');effect.textContent='Expected effect: '+entry.expectedEffect;
+    const expiry=document.createElement('small');expiry.textContent='Expires '+new Date(entry.expiresAt).toLocaleString();
+    card.append(heading,explanation,effect,expiry);
+    if(entry.status==='AWAITING_APPROVAL'){
+      const yes=document.createElement('button'),no=document.createElement('button'),cancel=document.createElement('button');
+      yes.textContent='Approve and execute';no.textContent='Reject';cancel.textContent='Cancel proposal';cancel.type='button';
+      yes.onclick=async()=>{if(!activeAuth()||entry.owner!==authOwner){status.textContent='Sign in as the account that received this proposal before approving it.';return;}yes.disabled=true;no.disabled=true;cancel.disabled=true;try{await withActionLock(entry.id,()=>{if(!persistTransition(entry.id,'APPROVED','Explicit user approval recorded.'))throw new Error('Proposal is no longer awaiting approval.');executeApproved(entry.id);});status.textContent='Approved, executed, and audited.';}catch(error){try{const current=readDb();if(current.ok){const failed=current.data.actions?.find(x=>x.id===entry.id);if(failed)failed.executionResult={ok:false,reason:clip(error.message,240),at:new Date().toISOString()};store(current.data);}persistTransition(entry.id,'FAILED',error.message);}catch{}status.textContent='Action not applied: '+clip(error.message,220);}renderStoredActions();};
+      no.onclick=()=>{try{persistTransition(entry.id,'REJECTED','Rejected by student.');status.textContent='Proposal rejected; no application changes were made.';}catch(error){status.textContent='Could not record rejection: '+error.message;}renderStoredActions();};
+      cancel.onclick=()=>{try{persistTransition(entry.id,'CANCELLED','Cancelled before approval.');status.textContent='Proposal cancelled; no application changes were made.';}catch(error){status.textContent='Could not cancel proposal: '+error.message;}renderStoredActions();};
+      card.append(yes,no,cancel);
+    } else if(entry.status==='APPROVED'||entry.status==='FAILED') {
+      if(entry.status==='FAILED'){const failure=document.createElement('p');failure.textContent='Last attempt failed: '+clip(entry.executionResult?.reason||'No result recorded.',240);card.append(failure);}
+      const resume=document.createElement('button');resume.textContent=entry.status==='FAILED'?'Retry approved action':'Complete approved action';resume.onclick=async()=>{resume.disabled=true;try{await withActionLock(entry.id,()=>{if(entry.status==='FAILED')persistTransition(entry.id,'APPROVED','Retrying previously approved action.');executeApproved(entry.id);});status.textContent='Approved action executed and audited.';}catch(error){status.textContent='Action failed: '+error.message;}renderStoredActions();};card.append(resume);
+    }
+    return card;
+  }
+  function renderStoredActions() {
+    actions.replaceChildren();const current=readDb();if(!current.ok)return;
+    const d=current.data;d.actions=Array.isArray(d.actions)?d.actions:[];let changed=false;
+    for(const x of d.actions){if(['AWAITING_APPROVAL','APPROVED'].includes(x.status)&&Date.parse(x.expiresAt)<=Date.now()){event(x,'EXPIRED','Approval window elapsed.');audit(d,x,'ai-action-expired','Approval window elapsed.');changed=true;}}
+    if(changed)try{store(d);}catch{}
+    for(const entry of d.actions.filter(x=>['AWAITING_APPROVAL','APPROVED','FAILED'].includes(x.status)))actions.append(cardFor(entry));
+  }
+
+  function setBusy(value) {
+    busy=value;const send=form.querySelector('button[type="submit"]')||form.querySelector('button');
+    send.disabled=value;send.textContent=value?'Thinking…':'Send';cancelButton.hidden=!value;
+    if(value)retryButton.hidden=true;
+  }
+  async function sendMessage(message) {
+    if(busy||!message||message.length>4000)return;
+    if(!activeAuth()){status.textContent='Sign in with the configured identity provider before contacting THE SYSTEM.';return;}
+    setBusy(true);retryButton.hidden=true;add(message,'user');input.value='';status.textContent=navigator.onLine?'THE SYSTEM is thinking…':'You are offline; trying the Worker connection…';
+    const snapshot=readDb(),ctx=contextFor(snapshot),requestId=crypto.randomUUID();controller=new AbortController();timedOut=false;
+    const timer=setTimeout(()=>{timedOut=true;controller?.abort();},20000);
+    try {
+      const response=await fetch(API,{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+authCredential},signal:controller.signal,body:JSON.stringify({message,studyContext:ctx.text,contextSnapshotAt:ctx.snapshotAt,clientRequestId:requestId})});
+      const data=await response.json().catch(()=>({}));
+      if(response.status===401){clearAuth('Your identity session expired or was rejected. Sign in again.');throw new Error('Sign-in expired; no application action was applied.');}
+      if(!response.ok)throw new Error(typeof data.error==='string'?data.error:'Request failed ('+response.status+').');
+      if(typeof data.reply!=='string'||!data.reply.trim())throw new Error('The AI returned an empty response.');
+      add(data.reply.trim(),'system');
+      const latest=readDb();
+      const changed=latest.ok&&snapshot.ok&&latest.data.updatedAt!==snapshot.data.updatedAt;
+      if(latest.ok){const d=latest.data;d.conversations=Array.isArray(d.conversations)?d.conversations:[];d.conversations.push({role:'user',text:message.slice(0,1200),at:new Date().toISOString()},{role:'assistant',text:data.reply.trim().slice(0,1200),at:new Date().toISOString()});d.conversations=d.conversations.slice(-24);try{store(d);}catch{status.textContent='Response received; local history could not be saved.';}}
+      await recordProposals(Array.isArray(data.actions)?data.actions:[]);renderStoredActions();
+      const stamp=new Date(ctx.snapshotAt).toLocaleTimeString();
+      if(!navigator.onLine)status.textContent='Response received · context snapshot '+stamp+' · you are offline now.';
+      else if(changed)status.textContent='Response received · application data changed since the context snapshot; review actions carefully.';
+      else if(!Array.isArray(data.actions))status.textContent='Connected to Gemini · this Worker returned text only; no action proposals were supplied.';
+      else status.textContent='Connected to Gemini · context snapshot '+stamp+' · proposed changes require approval.';
+      retryMessage='';retryButton.hidden=true;
+    } catch(error) {
+      if(error.name==='AbortError'){
+        status.textContent=timedOut?'Request timed out. No application action was applied.':'Request cancelled. No application action was applied.';
+        retryMessage=message;retryButton.hidden=false;
+      } else {
+        status.textContent=navigator.onLine?'AI unavailable · your message is ready to retry.':'Offline · local study tools remain available; no AI response was fabricated.';
+        retryMessage=message;retryButton.hidden=false;
+        add('I could not reach the mentor service. '+clip(error.message||error,240),'system');
+      }
+      input.value=message;
+    } finally {clearTimeout(timer);controller=null;setBusy(false);}
+  }
+  form.addEventListener('submit',e=>{e.preventDefault();sendMessage(input.value.trim());});
+  cancelButton.addEventListener('click',()=>controller?.abort());
+  retryButton.addEventListener('click',()=>{if(!busy)sendMessage(input.value.trim()||retryMessage);});
+  input.addEventListener('input',()=>{if(input.value.trim()!==retryMessage)retryButton.hidden=true;});
+  $('clear-chat').addEventListener('click',()=>{if(!confirm('Clear saved conversation history?'))return;const current=readDb();if(!current.ok){status.textContent=current.reason;return;}current.data.conversations=[];try{store(current.data);log.replaceChildren();status.textContent='Conversation history cleared; action audit is preserved.';}catch(error){status.textContent='History could not be cleared: '+clip(error.message,160);}});
+  $('save-chat').addEventListener('click',()=>{const current=readDb();if(!current.ok){status.textContent=current.reason;return;}current.data.settings=current.data.settings||{};current.data.settings.shareContext=$('chat-context').checked;try{store(current.data);status.textContent='Context-sharing preference saved.';}catch(error){status.textContent='Preference could not be saved: '+clip(error.message,160);}});
+  signoutButton.addEventListener('click',()=>{clearAuth('Signed out. Sign in again to contact THE SYSTEM.');try{window.google?.accounts?.id?.disableAutoSelect();}catch{}});
+  window.addEventListener('offline',()=>{if(!busy)status.textContent='Offline · local study tools remain available; THE SYSTEM needs a connection.';});
+  window.addEventListener('online',()=>{if(!authCredential)setupAuth();if(!busy)status.textContent=authCredential?'Online · THE SYSTEM is ready when you send a message.':'Online · sign in to use THE SYSTEM.';});
+  const current=readDb();if(current.ok)$('chat-context').checked=current.data.settings?.shareContext===true;
+  if(!navigator.onLine)status.textContent='Offline · local study tools remain available; THE SYSTEM needs a connection.';
+  if(current.ok){for(const m of (current.data.conversations||[]).slice(-24)){if(m&&typeof m.text==='string')add(m.text,m.role==='assistant'?'system':'user');}}
+  renderStoredActions();
+  addDevProposalPanel();
+  setupAuth();
 })();

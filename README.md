@@ -1,27 +1,39 @@
-# COMEBACK OS 2.1 — Hybrid Intelligence
+# COMEBACK OS 2.5
 
-Phone-first, local-first PWA. This release adds five cooperating deterministic engines while preserving the existing `comeback-os` localStorage key and import/export workflow.
+Mobile-first local-first JEE preparation PWA. Browser data remains under the legacy-compatible localStorage key comeback-os. Planning, evidence logging, progress, and backup work offline.
 
-## Deploy/update on GitHub Pages
-1. In the currently installed app, open Profile → Export Backup first.
-2. Extract this ZIP.
-3. Upload/replace the contents of `COMEBACK_OS_2_0` in the root of the existing `comeback-os` repository.
-4. Commit the changes; keep the repository and GitHub Pages settings unchanged.
-5. Reopen the existing Pages URL in Brave. If the old shell remains, close and reopen the installed PWA after the service worker refreshes.
-6. Import the JSON backup only if the browser's local data is missing. The app also migrates the existing `comeback-os` data automatically.
+## Run and deploy
 
-## Five engines
-1. **Daily Quest Engine:** generates a small daily mission set using chapter priorities, backlog and retention needs.
-2. **Mastery Engine:** uses recorded independent PYQ sessions, accuracy, topic coverage and separate Main/Advanced evidence. It does not accept a manual mastery toggle.
-3. **21-Day Evaluation:** reviews the rolling 21-day record. It defers when evidence is insufficient rather than treating missing data as failure.
-4. **Retention Engine:** flags mastered chapters whose last revision is overdue.
-5. **Progress Intelligence:** produces explainable recommendations from local records.
+Serve the repository root over HTTP(S). GitHub Pages serves this project at https://aakxrsh-og.github.io/Comeback-OS/. The manifest, service-worker scope, and assets use relative paths for the project subpath.
 
-## Important limitations
-- The included chapter list is a **30-chapter starter catalogue**, not the complete official JEE Main + Advanced syllabus. Do not treat it as complete coverage.
-- PYQ evidence is user-entered and not externally authenticated. The mastery gate is a useful progress rule, not an independent verification of question authenticity or answer correctness.
-- The evaluation score is a transparent prototype metric, not a predicted JEE rank or an official academic grade.
-- No live AI provider is connected. The backend URL field only saves an address; no student data is transmitted. Review provider terms for the actual student end user before enabling any external AI. Keep API credentials on a secure backend, never in `app.js`, GitHub Pages, or screenshots.
+1. Export a JSON backup from Profile before updating an existing install.
+2. Publish the repository root with GitHub Pages.
+3. Keep the Worker API key as a Cloudflare encrypted secret named GEMINI_API_KEY. Set GEMINI_MODEL and ALLOWED_ORIGINS as Worker variables.
+4. Restrict ALLOWED_ORIGINS to https://aakxrsh-og.github.io. CORS only controls browsers and is not authentication. Configure Cloudflare rate limiting / abuse controls before public exposure.
+5. Deploy backend/ with Wrangler or the Cloudflare dashboard. Confirm /health and /api/mentor from the Pages origin.
+6. Never put credentials in frontend files, localStorage, repository history, diagnostics, or chat.
 
-## Data safety
-Export a JSON backup regularly. Browser storage can be cleared by Android/Brave. See `docs/DATA_MODEL.md`, `docs/AI_CONTRACT.md`, and `backend-starter/README.md`.
+## Data safety and migration
+
+Before migrating older schemas, the app copies the exact original serialized value to a versioned localStorage backup (`comeback-os.backup.pre-2.5` for older pre-2.5 data, or `comeback-os.backup.pre-v8` for later schemas). Migration merges legacy chapters and record arrays; schema v8 adds preparation targets and the approval/action ledger. Profile offers a downloadable copy. Import keeps a timestamped copy of current data first. Browser storage can still be cleared; export regularly.
+
+The catalog crosswalks the 20 Physics, 20 Chemistry and 14 Mathematics units in the official 2027 NTA JEE Main Paper 1 syllabus and the latest published 2026 JEE Advanced syllabus. It labels each chapter as included, partial, or not listed and stores separate exam-specific topic checklists. It is a chapter-level study aid, not an official clause-by-clause equivalence; review the linked source documents. No 2027 Advanced syllabus is claimed.
+
+## Engines and limitations
+
+Daily quests use available minutes, backlog, priorities, evidence and revision due dates. Mastery requires topic logs and multiple independent Main and Advanced PYQ sets. The 21-day evaluation defers when evidence is limited. Revision dates follow recorded revision sessions. The planner blocks overlapping timed quests.
+
+Study logs and PYQ results are student-entered and are not externally authenticated. XP tracks logged effort and never stands in for academic mastery. AI guidance is advisory, application-changing proposals require approval, and it cannot grant mastery or fabricate study evidence. Sharing a bounded progress summary is opt-in and unchecked by default. THE SYSTEM now requires a Google ID token verified by the Worker; its bearer credential is held in memory only and expires with the identity token. Local records remain in browser localStorage, are not encrypted or isolated by Google account, and are accessible to anyone using that browser profile.
+
+Worker auth, origin validation, namespace, secret verification and the account-owner setup checklist are documented in [backend/README.md](backend/README.md). This branch has not been deployed. The Worker OAuth client ID and account-specific rate-limit namespace are intentionally unconfigured; do not treat CORS or rate limiting as identity.
+
+The signed-in Profile page supports source-snippet development proposals: Gemini may return a validated, reviewable diff and suggested tests, but never executes code or modifies the repository. Explicit approval only downloads a patch; there is no direct GitHub inspection or repository write integration. Any later GitHub App integration must be narrowly scoped, audited and separately approved before branch/PR writes, pushes, merges or deployments.
+
+## Backend secrets
+
+Add encrypted Worker secret GEMINI_API_KEY with Cloudflare dashboard or Wrangler secret management. Never put a secret value in wrangler.toml, commit history, frontend source, logs, or issue reports. Review account limits and configure rate limiting before enabling broad access. Worker URL and model name are public configuration, not credentials.
+
+## Official syllabus sources
+
+- NTA JEE Main 2027: https://jeemain.nta.nic.in/document/syllabus-2027/
+- JEE Advanced 2026 syllabus: https://jeeadv.ac.in/documents/jee-advanced-2026-syllabus.pdf

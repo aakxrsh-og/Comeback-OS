@@ -6,6 +6,12 @@ compatibility_date = "2026-11-12"
 # Replace with the exact published GitHub Pages origin (no trailing slash).
 ALLOWED_ORIGINS = "https://aakxrsh-og.github.io"
 GEMINI_MODEL = "gemini-3.5-flash-lite"
+# Public Google OAuth Web client ID. Configure after adding the exact Pages origin in Google Cloud.
+GOOGLE_CLIENT_ID = ""
+
+# Required before enabling /api/mentor. The namespace ID is account-specific and intentionally
+# not set here; see backend/README.md for the exact binding shape. The Worker fails closed
+# with HTTP 503 until MENTOR_RATE_LIMIT is configured.
 
 # GEMINI_API_KEY MUST be added as an encrypted Worker secret.
 # Never put it in this file, app.js, GitHub Pages, or a committed .env file.
