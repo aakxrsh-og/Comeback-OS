@@ -58,7 +58,7 @@ export default {
       ? body.studyContext.slice(0, 2500)
       : "";
 
-    const model = env.GEMINI_MODEL || "gemini-2.5-flash-lite";
+    const model = env.GEMINI_MODEL || "gemini-3.5-flash-lite";
     const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
 
     let upstream;
