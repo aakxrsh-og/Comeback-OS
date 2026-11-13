@@ -61,3 +61,11 @@ test('topic mastery is evidence-derived, separate from completion, and engine ru
   assert.equal(s.settings.engineRuns.mastery.status,'ok');assert.ok(s.settings.engineRuns.mastery.lastRunAt);assert.ok(s.settings.engineRuns.mastery.inputSummary.taggedSessions>=2);assert.ok(s.settings.engineRuns.mastery.outputSummary.explainability);
   const sparse=await loadApp(),c2=sparse.state.chapters.find(x=>x.mainTopics?.length);assert.equal(sparse.topicMastery(c2,'main:'+c2.mainTopics[0]).mastered,false);
 });
+
+test('five engines exchange study and quest evidence through a full local workflow',async()=>{
+  const app=await loadApp(),s=app.state,c=s.chapters[0];s.settings.availableMinutes=90;assert.equal(app.generate(),true);const generated=s.quests.filter(q=>q.generated);assert.ok(generated.length);assert.ok(generated.some(q=>q.chapterId===c.id));
+  const today=new Date().toISOString();for(let i=0;i<5;i++)s.sessions.push({chapterId:c.id,minutes:25,type:i===4?'Revision':'Concept study',at:new Date(Date.now()-i*86400000).toISOString()});s.attempts.push({chapterId:c.id,exam:'JEE Main',independent:true,total:10,correct:4,at:today},{chapterId:c.id,exam:'JEE Main',independent:true,total:10,correct:5,at:today});
+  generated[0].done=true;generated[0].completedAt=today;const evaluation=app.eval21(),revision=app.revisionCandidates().find(x=>x.chapter.id===c.id),recommendation=app.recommendNext();
+  assert.equal(evaluation.enough,true);assert.ok(revision?.reasons.some(x=>x.includes('below 70%')));assert.match(recommendation.action,/revision/i);
+  for(const name of ['planner','mastery','evaluation','revision','recommendation']){assert.ok(s.settings.engineRuns[name],name+' run missing');assert.ok(Date.parse(s.settings.engineRuns[name].lastRunAt),name+' timestamp missing')}
+});
