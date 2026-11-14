@@ -221,7 +221,7 @@ export default {
     const origin = request.headers.get('Origin') || '';
     const headers = cors(origin, env), url = new URL(request.url);
     if (request.method === 'OPTIONS') return new Response(null, { status:204, headers });
-    if (request.method === 'GET' && url.pathname === '/health') return json({ok:true,service:'comeback-os-ai'},200,headers);
+    if (request.method === 'GET' && url.pathname === '/health') return json({ok:true,service:'comeback-os-ai1'},200,headers);
     const allowed = configuredOrigins(env);
     if (request.method === 'GET' && url.pathname === '/api/auth/config') {
       if (!origin || !allowed?.includes(origin)) return json({error:'Origin not allowed.'},403,headers);
