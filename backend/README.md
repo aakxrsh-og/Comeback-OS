@@ -27,13 +27,13 @@ Cloudflare rate-limit bindings use developer-defined integer namespace IDs; ther
 
 ### Account-owner setup (no deployment performed)
 
-1. In Google Cloud Console, create an OAuth 2.0 **Web application** client for Google Identity Services. Add `https://aakxrsh-og.github.io` under Authorized JavaScript origins (no project path). Add a localhost origin only for local development. This client ID is public; do not use a client secret in the static app.
+1. The OAuth 2.0 **Web application** Client ID is configured in `wrangler.toml`. In Google Cloud Console, verify that its Authorized JavaScript origins include exactly `https://aakxrsh-og.github.io` (no project path). This implementation uses Google Identity Services popup credential flow; no authorized redirect URI is required. Do not use a client secret in the static app.
 2. In the Cloudflare account that owns `comeback-os-ai`, confirm the Worker account and select an unused positive integer for a unique rate-limit namespace. Use the exact `[[ratelimits]]` block above; do not copy a namespace ID from an example or another account. The rate limit is approximate and per Cloudflare location.
-3. Set the real Google Web client ID in `GOOGLE_CLIENT_ID` in `backend/wrangler.toml`. Keep `ALLOWED_ORIGINS` exactly equal to the published origin and do not add the `/Comeback-OS/` path.
+3. Keep the configured public Client ID in `GOOGLE_CLIENT_ID`. The frontend obtains this same value from `/api/auth/config`; Worker JWT audience validation compares against it. Keep `ALLOWED_ORIGINS` exactly equal to the published origin and do not add the `/Comeback-OS/` path.
 4. From `backend/`, run `npx wrangler whoami` to confirm the intended account. Run `npx wrangler secret list` to verify that a secret named `GEMINI_API_KEY` exists; this lists metadata only, never the value. If it is absent, use `npx wrangler secret put GEMINI_API_KEY` and paste the key only into Wrangler's interactive prompt.
 5. Run `npx wrangler deploy --dry-run` to validate the prepared bundle/configuration. This does not deploy. Before any real deployment, explicitly review `wrangler.toml`, confirm the origin, OAuth client, unique namespace, and secret presence, then separately approve deployment. No deploy was performed for this branch.
 
-This checkout has no Cloudflare account session or account-provided namespace ID, Google OAuth client ID, or secret metadata. Therefore the encrypted secret's presence and the live Cloudflare binding cannot be independently verified here. `wrangler.toml` intentionally leaves the OAuth client ID blank and the rate-limit ID unset; the Worker fails closed until both are correctly supplied.
+The public OAuth Client ID is now present in `wrangler.toml`. The `MENTOR_RATE_LIMIT` namespace ID is still intentionally unset because it must be confirmed unique within the owning Cloudflare account. Wrangler login was initiated, but account identity and secret metadata are not yet verified. The Worker fails closed until its required account configuration is complete.
 
 ### Identity and data boundary
 
@@ -80,4 +80,4 @@ The Worker never executes source code, shell commands, Git operations, merges, o
 
 ## Release boundary
 
-This release branch has not been deployed. The previously checked live Worker is still the older unauthenticated build; do not treat this branch's authentication as protecting that deployed endpoint. Before any deployment, configure the encrypted provider secret, OAuth client and account rate-limit namespace, verify them without printing secret values, and exercise sign-in, `/health`, `/api/mentor`, action approval and development proposals from the hosted app. CORS is not authentication; do not treat a personal endpoint as safe for broad public sharing without appropriate access control. No deploy or merge was performed.
+The frontend is published on GitHub Pages. The live Worker returns 200 from `/health` and 503 (`configured:false`) from `/api/auth/config` when called from the exact Pages origin: its deployed environment does not yet contain a valid Google Client ID. Before Worker deployment, confirm the unique account rate-limit namespace and encrypted provider secret, verify secret names without printing values, then exercise sign-in, `/health`, `/api/mentor`, action approval and development proposals from the hosted app. CORS is not authentication; do not treat a personal endpoint as safe for broad public sharing without appropriate access control.

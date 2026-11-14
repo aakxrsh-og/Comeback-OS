@@ -6,8 +6,8 @@ compatibility_date = "2026-11-12"
 # Replace with the exact published GitHub Pages origin (no trailing slash).
 ALLOWED_ORIGINS = "https://aakxrsh-og.github.io"
 GEMINI_MODEL = "gemini-3.5-flash-lite"
-# Public Google OAuth Web client ID. Configure after adding the exact Pages origin in Google Cloud.
-GOOGLE_CLIENT_ID = ""
+# Public Google OAuth Web client ID for Google Identity Services popup sign-in.
+GOOGLE_CLIENT_ID = "594337907557-gpvnveak5v1gcpm66eblpa5u9g3nkjkv.apps.googleusercontent.com"
 
 # Required before enabling /api/mentor. The namespace ID is account-specific and intentionally
 # not set here; see backend/README.md for the exact binding shape. The Worker fails closed
