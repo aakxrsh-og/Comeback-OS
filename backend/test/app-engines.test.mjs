@@ -14,7 +14,7 @@ async function loadApp(serializedData=null) {
   const context={document,localStorage:{getItem:k=>data.get(k)||null,setItem:(k,v)=>data.set(k,v)},crypto:webcrypto,console,navigator:{},URL,Blob,confirm:()=>true,setTimeout:()=>0,addEventListener(){},window:{}};
   vm.createContext(context);
   const [catalog,app]=await Promise.all([readFile(new URL('../../syllabus.js',import.meta.url),'utf8'),readFile(new URL('../../app.js',import.meta.url),'utf8')]);
-  vm.runInContext(catalog+'\n'+app+'\nglobalThis.__engines={get state(){return state},mastery,topicMastery,topicKeys,recordEngine,refresh,generate,eval21,revisionCandidates,recommendNext,focus,active,overlaps,recoverQuest};',context);
+  vm.runInContext(catalog+'\n'+app+'\nglobalThis.__engines={get state(){return state},mastery,topicMastery,topicKeys,recordEngine,refresh,generate,eval21,revisionCandidates,recommendNext,focus,active,overlaps,recoverQuest,award};',context);
   context.__engines.storage=data;return context.__engines;
 }
 
@@ -41,11 +41,13 @@ test('topic completion alone does not award mastery; repeated sessions and exam-
   app.refresh();assert.equal(c.mastered,true);assert.equal(c.status,'Mastered');
 });
 
+test('academic rank is evidence-gated and does not rise with XP level',async()=>{const app=await loadApp(),s=app.state;app.award(1000,'test XP');assert.ok(s.profile.level>1);assert.equal(s.profile.academicRank,'Unranked');assert.equal(s.profile.rankHistory.length,0);});
+
 test('21-day evaluation defers with thin evidence and uses logged evidence when sufficient',async()=>{
   const app=await loadApp(),s=app.state;let result=app.eval21();assert.equal(result.enough,false);assert.equal(result.score,null);
   const now=Date.now();for(let i=0;i<5;i++)s.sessions.push({at:new Date(now-i*86400000).toISOString(),minutes:30});
   s.attempts.push({at:new Date(now).toISOString(),total:10,correct:7},{at:new Date(now-86400000).toISOString(),total:10,correct:8});
-  result=app.eval21();assert.equal(result.enough,true);assert.equal(result.accuracy,75);assert.ok(Number.isFinite(result.score));
+  result=app.eval21();assert.equal(result.enough,false);assert.ok(result.missingEvidence.includes('1 assessment'));s.assessments.push({at:new Date().toISOString(),score:80,total:100});result=app.eval21();assert.equal(result.enough,true);assert.equal(result.accuracy,75);assert.ok(Number.isFinite(result.score));assert.ok(result.rank);assert.equal(s.profile.academicRank,result.rank);assert.equal(s.profile.rankHistory.length,1);const academicRank=s.profile.academicRank;app.award(2000,'additional XP');assert.equal(s.profile.academicRank,academicRank);
 });
 
 test('revision queue explains real overdue, weak-PYQ, backlog and mistake signals',async()=>{
@@ -75,7 +77,7 @@ test('topic mastery is evidence-derived, separate from completion, and engine ru
 test('five engines exchange study and quest evidence through a full local workflow',async()=>{
   const app=await loadApp(),s=app.state,c=s.chapters[0];s.settings.availableMinutes=90;assert.equal(app.generate(),true);const generated=s.quests.filter(q=>q.generated);assert.ok(generated.length);assert.ok(generated.some(q=>q.chapterId===c.id));
   const today=new Date().toISOString();for(let i=0;i<5;i++)s.sessions.push({chapterId:c.id,minutes:25,type:i===4?'Revision':'Concept study',at:new Date(Date.now()-i*86400000).toISOString()});s.attempts.push({chapterId:c.id,exam:'JEE Main',independent:true,total:10,correct:4,at:today},{chapterId:c.id,exam:'JEE Main',independent:true,total:10,correct:5,at:today});
-  generated[0].done=true;generated[0].completedAt=today;const evaluation=app.eval21(),revision=app.revisionCandidates().find(x=>x.chapter.id===c.id),recommendation=app.recommendNext();
+  s.assessments.push({at:today,score:75,total:100});generated[0].done=true;generated[0].completedAt=today;const evaluation=app.eval21(),revision=app.revisionCandidates().find(x=>x.chapter.id===c.id),recommendation=app.recommendNext();
   assert.equal(evaluation.enough,true);assert.ok(revision?.reasons.some(x=>x.includes('below 70%')));assert.match(recommendation.action,/revision/i);
   for(const name of ['planner','mastery','evaluation','revision','recommendation']){assert.ok(s.settings.engineRuns[name],name+' run missing');assert.ok(Date.parse(s.settings.engineRuns[name].lastRunAt),name+' timestamp missing')}
 });
