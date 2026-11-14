@@ -8,7 +8,7 @@ The PWA calls this Worker for THE SYSTEM mentor. The Worker holds the provider k
 - Set `GEMINI_MODEL` to a model enabled for the provider project.
 - Add `GEMINI_API_KEY` as an encrypted Worker secret. If a key was previously exposed, revoke it and create a replacement directly in the provider console. Never share a key in chat, commit it, or print it in a terminal.
 - Configure `GOOGLE_CLIENT_ID` as the public OAuth 2.0 Web client ID. The browser signs in through Google Identity Services; the Worker verifies RS256 signature against Google's published signing keys and checks issuer, audience, verified email, issued-at and expiry. It never trusts an identity claim sent separately from the bearer token.
-- This repository has no Cloudflare account access and does not claim a configured namespace ID. The Worker fails closed with HTTP 503 until `MENTOR_RATE_LIMIT` is bound.
+- The Cloudflare account was verified with `wrangler whoami` on 2026-11-14. No namespace ID is configured in this repository, and the Worker fails closed with HTTP 503 until `MENTOR_RATE_LIMIT` is bound.
 - Cloudflare's built-in rate limits are approximate and location-scoped, not strict global quotas. The account owner must confirm that the chosen ID is unique.
 
 Before deployment, add this exact binding shape to `wrangler.toml`, replacing the placeholder with a positive integer namespace ID that the Cloudflare account owner confirms is unique:
@@ -33,7 +33,9 @@ Cloudflare rate-limit bindings use developer-defined integer namespace IDs; ther
 4. From `backend/`, run `npx wrangler whoami` to confirm the intended account. Run `npx wrangler secret list` to verify that a secret named `GEMINI_API_KEY` exists; this lists metadata only, never the value. If it is absent, use `npx wrangler secret put GEMINI_API_KEY` and paste the key only into Wrangler's interactive prompt.
 5. Run `npx wrangler deploy --dry-run` to validate the prepared bundle/configuration. This does not deploy. Before any real deployment, explicitly review `wrangler.toml`, confirm the origin, OAuth client, unique namespace, and secret presence, then separately approve deployment. No deploy was performed for this branch.
 
-The public OAuth Client ID is now present in `wrangler.toml`. The `MENTOR_RATE_LIMIT` namespace ID is still intentionally unset because it must be confirmed unique within the owning Cloudflare account. Wrangler login was initiated, but account identity and secret metadata are not yet verified. The Worker fails closed until its required account configuration is complete.
+The public OAuth Client ID is present in `wrangler.toml`. In the latest local verification (2026-11-14), `wrangler whoami` confirmed authentication in the configured Cloudflare account, and `wrangler secret list` returned an empty list (secret names only; no values were read). The deployed `/health` endpoint returned 200, while `/api/auth/config` returned 503 with `configured:false`; therefore live sign-in and Gemini are not ready.
+
+`MENTOR_RATE_LIMIT` is referenced by Worker code but is absent from this repository's `wrangler.toml`. The account owner must inspect existing Worker bindings and select a positive integer confirmed unique within the account before adding the binding below. No ID has been guessed or reused. The local `wrangler deploy --dry-run` passed, but listed only `ALLOWED_ORIGINS`, `GEMINI_MODEL`, and `GOOGLE_CLIENT_ID`; it does not verify live secrets or bindings. No production configuration or secrets were changed, and no deployment was performed.
 
 ### Identity and data boundary
 
@@ -80,4 +82,4 @@ The Worker never executes source code, shell commands, Git operations, merges, o
 
 ## Release boundary
 
-The frontend is published on GitHub Pages. The live Worker returns 200 from `/health` and 503 (`configured:false`) from `/api/auth/config` when called from the exact Pages origin: its deployed environment does not yet contain a valid Google Client ID. Before Worker deployment, confirm the unique account rate-limit namespace and encrypted provider secret, verify secret names without printing values, then exercise sign-in, `/health`, `/api/mentor`, action approval and development proposals from the hosted app. CORS is not authentication; do not treat a personal endpoint as safe for broad public sharing without appropriate access control.
+The frontend is published on GitHub Pages. The live Worker returns 200 from `/health` and 503 (`configured:false`) from `/api/auth/config` when called from the exact Pages origin, so the deployed environment does not currently expose a configured Google Client ID. Before Worker deployment, confirm the unique account rate-limit namespace and encrypted provider secret, verify secret names without printing values, then exercise sign-in, `/health`, `/api/mentor`, action approval and development proposals from the hosted app. CORS is not authentication; do not treat a personal endpoint as safe for broad public sharing without appropriate access control.

@@ -8,16 +8,26 @@ class Element {
   constructor(id='') { this.id=id;this.value=id==='subject'||id==='exam-filter'?'All':id==='topic-status-filter'?'all':'';this.innerHTML='';this.textContent='';this.style={};this.dataset={};this.hidden=false;this.classList={add(){},remove(){},toggle(){}}; }
   addEventListener(){} reset(){} replaceChildren(){} append(){} scrollIntoView(){}
 }
-async function loadApp() {
-  const elements=new Map(),get=id=>{if(!elements.has(id))elements.set(id,new Element(id));return elements.get(id);},data=new Map();
+async function loadApp(serializedData=null) {
+  const elements=new Map(),get=id=>{if(!elements.has(id))elements.set(id,new Element(id));return elements.get(id);},data=new Map(serializedData==null?[]:[['comeback-os',serializedData]]);
   const document={getElementById:get,addEventListener(){},querySelectorAll(){return[]},querySelector(){return new Element()},createElement(){return new Element()}};
   const context={document,localStorage:{getItem:k=>data.get(k)||null,setItem:(k,v)=>data.set(k,v)},crypto:webcrypto,console,navigator:{},URL,Blob,confirm:()=>true,setTimeout:()=>0,addEventListener(){},window:{}};
   vm.createContext(context);
   const [catalog,app]=await Promise.all([readFile(new URL('../../syllabus.js',import.meta.url),'utf8'),readFile(new URL('../../app.js',import.meta.url),'utf8')]);
   vm.runInContext(catalog+'\n'+app+'\nglobalThis.__engines={get state(){return state},mastery,topicMastery,topicKeys,recordEngine,refresh,generate,eval21,revisionCandidates,recommendNext,focus,active,overlaps,recoverQuest};',context);
-  return context.__engines;
+  context.__engines.storage=data;return context.__engines;
 }
 
+test('schema v8 migration preserves the exact backup and user records while upgrading to v9',async()=>{
+  const original={version:8,profile:{xp:210,level:3},chapters:[{id:'old-kinematics',subject:'Physics',name:'Kinematics',topics:['Legacy custom topic'],status:'In progress',topicStatus:{'main:custom':'completed'}},{id:'custom-chapter',subject:'Physics',name:'User-created chapter',topics:['Custom topic']}],sessions:[{chapterId:'old-kinematics',minutes:35,at:'2026-11-13T10:00:00Z'}],attempts:[{chapterId:'old-kinematics',exam:'JEE Main',total:5,correct:4}],settings:{availableMinutes:75,engineRuns:{planner:{status:'ok',at:'2026-11-13T10:00:00Z'}}}};
+  const raw=JSON.stringify(original),app=await loadApp(raw),s=app.state,chapter=s.chapters.find(x=>x.name==='Kinematics');
+  assert.equal(app.storage.get('comeback-os.backup.pre-v9'),raw);assert.equal(s.version,9);assert.equal(s.profile.xp,210);assert.equal(s.profile.level,3);assert.equal(chapter.status,'In progress');assert.ok(chapter.topics.includes('Legacy custom topic'));assert.equal(s.sessions[0].chapterId,chapter.id);assert.equal(s.attempts[0].chapterId,chapter.id);assert.ok(s.chapters.some(x=>x.id==='custom-chapter'&&x.legacy));assert.equal(s.settings.availableMinutes,75);assert.equal(s.settings.engineRuns.planner.status,'ok');assert.equal(JSON.parse(app.storage.get('comeback-os')).version,9);
+});
+
+test('pre-v6 migration keeps its original pre-2.5 backup',async()=>{
+  const raw=JSON.stringify({version:5,chapters:[],sessions:[{minutes:12}]});const app=await loadApp(raw);
+  assert.equal(app.storage.get('comeback-os.backup.pre-2.5'),raw);assert.equal(app.state.version,9);assert.equal(app.state.sessions[0].minutes,12);
+});
 test('fresh install seeds the syllabus catalogue and daily quests are bounded and duplicate-safe',async()=>{
   const app=await loadApp(),s=app.state;assert.ok(s.chapters.length>=45);s.settings.availableMinutes=90;s.settings.lastQuestDate='';
   assert.equal(app.generate(),true);const count=s.quests.length;assert.ok(count>0);assert.ok(s.quests.reduce((n,q)=>n+q.minutes,0)<=90);assert.equal(app.generate(),false);assert.equal(s.quests.length,count);
